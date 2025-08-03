@@ -1,0 +1,157 @@
+import numpy as np
+import pandas as pd
+import os
+import numpy as np
+import random
+from datetime import datetime
+import sys
+import matplotlib.pyplot as plt
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'gaussianPuff')))
+from config import ModelConfig, StabilityType, WindType, OutputType, NPS, PasquillGiffordStability
+from gaussianModel import run_dispersion_model
+from plot_utils import plot_plan_view
+
+# Parametri generali
+N_SIMULATIONS = 1000
+N_SENSORS = 5
+SAVE_DIR = "./GNN/dataset"
+BINARY_MAP_PATH = os.path.join(os.path.dirname(__file__), "benevento_italy_full_map.npy")
+
+os.makedirs(SAVE_DIR, exist_ok=True)
+
+# Caricamento mappa binaria (1 = suolo libero, 0 = edificio)
+binary_map = np.load(BINARY_MAP_PATH)
+free_cells = np.argwhere(binary_map == 1)
+
+def random_position():
+    idx = np.random.choice(len(free_cells))
+    y, x = free_cells[idx]
+    return float(x), float(y)
+
+def assign_wind_speed(stability: PasquillGiffordStability) -> float:
+    """
+    Restituisce una velocità del vento (m/s) coerente con la stabilità atmosferica.
+    I range sono basati su letteratura meteorologica semplificata.
+    """
+    if stability == PasquillGiffordStability.VERY_UNSTABLE:  # A
+        return round(random.uniform(2.0, 6.0), 2)
+    elif stability == PasquillGiffordStability.MODERATELY_UNSTABLE:  # B
+        return round(random.uniform(2.0, 5.0), 2)
+    elif stability == PasquillGiffordStability.SLIGHTLY_UNSTABLE:  # C
+        return round(random.uniform(3.0, 6.5), 2)
+    elif stability == PasquillGiffordStability.NEUTRAL:  # D
+        return round(random.uniform(4.0, 8.0), 2)
+    elif stability == PasquillGiffordStability.MODERATELY_STABLE:  # E
+        return round(random.uniform(1.0, 4.0), 2)
+    elif stability == PasquillGiffordStability.VERY_STABLE:  # F
+        return round(random.uniform(0.5, 3.0), 2)
+    else:
+        # Default per stabilità sconosciuta
+        return round(random.uniform(2.0, 6.0), 2)
+
+def sample_meteorology():
+    wind_type = random.choice([WindType.CONSTANT ,WindType.PREVAILING, WindType.FLUCTUATING])
+    stability_type = StabilityType.CONSTANT
+    stability_value =  random.choice([PasquillGiffordStability.VERY_UNSTABLE, 
+                                      PasquillGiffordStability.MODERATELY_UNSTABLE, 
+                                      PasquillGiffordStability.SLIGHTLY_UNSTABLE, 
+                                      PasquillGiffordStability.NEUTRAL,  
+                                      PasquillGiffordStability.MODERATELY_STABLE, 
+                                      PasquillGiffordStability.VERY_STABLE]) if stability_type == StabilityType.CONSTANT else 0
+    
+    wind_speed = assign_wind_speed(stability_value)
+
+    return wind_speed, wind_type, stability_type, stability_value
+
+def add_noise(concentrations, noise_level):
+    concentrations = np.array(concentrations)
+    noise_std = noise_level * np.maximum(concentrations, 1e-6)
+    noise = np.random.normal(0, noise_std)
+    noisy_conc = concentrations + noise
+    noisy_conc = np.clip(noisy_conc, 0, None)
+    return noisy_conc.tolist()
+
+data_records = []
+
+for i in range(N_SIMULATIONS):
+    print(f"Simulazione {i+1}/{N_SIMULATIONS}")
+
+    # Sorgente (stack): posizione, altezza, emissione
+    x_src, y_src = random_position()
+    h_src = round(np.random.uniform(1, 10), 2)  # altezza del pennacchio arrotondata a due decimali
+    Q = round(np.random.uniform(0.0001, 0.01), 4)  # tasso di emissione arrotondato a quattro decimali
+
+    stacks = [(x_src, y_src, Q, h_src)]
+
+    # Sensori
+    sensors = [random_position() for _ in range(N_SENSORS)]
+
+    # Meteo
+    wind_speed, wind_type, stab_type, stab_value = sample_meteorology()
+
+    # nps considerato casuale
+    aerosol_type = random.choice(list(NPS))
+
+    # Configurazione modello
+    config = ModelConfig(
+        days=np.random.randint(1, 10),
+        RH=round(np.random.uniform(0, 0.99),2),
+        aerosol_type=aerosol_type,
+        dry_size=1.0,
+        humidify=random.choice([True, False]),
+        stability_profile=stab_type,
+        stability_value=stab_value,
+        wind_type=wind_type,
+        wind_speed=wind_speed,
+        output=OutputType.PLAN_VIEW,
+        stacks=stacks,
+        x_slice=26,
+        y_slice=1,
+    )
+
+    # Calcola concentrazioni con modello gaussiano
+    C1, (x, y, z), times, stability, wind_dir, stab_label, wind_label = run_dispersion_model(config)
+    #print(wind_dir)
+ 
+    # Aggiungi rumore simulato
+    noise_level = round(np.random.uniform(0.0, 0.0005), 4)
+    concentrations_noisy = [add_noise(c, noise_level) for c in C1]
+    
+    #print(config)
+    #print(noise_level)
+    #plot_plan_view(C1, x, y, title=(stab_label or "") + '\n' + (wind_label or ""))
+    #plot_plan_view(concentrations_noisy, x, y, title=(stab_label or "") + '\n' + (wind_label or ""))
+
+    # Salva record per ogni sensore e ogni simulazione
+    for sid, (sensor_pos, conc) in enumerate(zip(sensors, concentrations_noisy)):
+        row = {
+            "simulation_id": i,
+            "sensor_id": sid,
+            "sensor_x": sensor_pos[0],
+            "sensor_y": sensor_pos[1],
+            "sensor_noise": noise_level,
+            "sensor_height": 2.0,  # altezza sensore fissa
+            "timestamp": datetime.now().isoformat(),
+            "wind_type": wind_type.name,
+            "wind_speed": wind_speed,
+            "wind_dir": wind_dir,
+            "stability_profile": stab_type.name,
+            "stability_value": stab_value,
+            "aerosol_type": aerosol_type.name,
+            "source_x": x_src,
+            "source_y": y_src,
+            "source_h": h_src,
+            "emission_rate": Q,
+            "concentration": conc,  
+        }
+        #for t_idx, c_val in enumerate(conc):
+        #    row[f"c_t{t_idx}"] = c_val
+
+        data_records.append(row)
+
+# Salvataggio CSV
+df = pd.DataFrame(data_records)
+csv_path = os.path.join(SAVE_DIR, "nps_simulated_dataset_gaussiano_0208_v2.csv")
+df.to_csv(csv_path, index=False)
+
+print(f"\nDataset generato e salvato in {csv_path}")
