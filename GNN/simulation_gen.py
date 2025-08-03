@@ -15,7 +15,7 @@ from plot_utils import plot_plan_view
 N_SIMULATIONS = 1000
 N_SENSORS = 5
 SAVE_DIR = "./GNN/dataset"
-BINARY_MAP_PATH = os.path.join(os.path.dirname(__file__), "benevento_italy_full_map.npy")
+BINARY_MAP_PATH = os.path.join(os.path.dirname(__file__), "binary_maps_data/benevento_italy_full_map.npy")
 
 os.makedirs(SAVE_DIR, exist_ok=True)
 
@@ -46,7 +46,6 @@ def assign_wind_speed(stability: PasquillGiffordStability) -> float:
     elif stability == PasquillGiffordStability.VERY_STABLE:  # F
         return round(random.uniform(0.5, 3.0), 2)
     else:
-        # Default per stabilità sconosciuta
         return round(random.uniform(2.0, 6.0), 2)
 
 def sample_meteorology():
@@ -78,9 +77,8 @@ for i in range(N_SIMULATIONS):
 
     # Sorgente (stack): posizione, altezza, emissione
     x_src, y_src = random_position()
-    h_src = round(np.random.uniform(1, 10), 2)  # altezza del pennacchio arrotondata a due decimali
-    Q = round(np.random.uniform(0.0001, 0.01), 4)  # tasso di emissione arrotondato a quattro decimali
-
+    h_src = round(np.random.uniform(1, 10), 2)  # altezza del pennacchio 
+    Q = round(np.random.uniform(0.0001, 0.01), 4)  # tasso di emissione 
     stacks = [(x_src, y_src, Q, h_src)]
 
     # Sensori
@@ -92,13 +90,14 @@ for i in range(N_SIMULATIONS):
     # nps considerato casuale
     aerosol_type = random.choice(list(NPS))
 
-    # Configurazione modello
+    humidify = random.choice([True, False])
+
     config = ModelConfig(
-        days=np.random.randint(1, 10),
-        RH=round(np.random.uniform(0, 0.99),2),
+        days=20,
         aerosol_type=aerosol_type,
         dry_size=1.0,
-        humidify=random.choice([True, False]),
+        humidify=humidify,
+        RH=round(np.random.uniform(0, 0.99),2) if humidify else 0.0,
         stability_profile=stab_type,
         stability_value=stab_value,
         wind_type=wind_type,
@@ -111,12 +110,21 @@ for i in range(N_SIMULATIONS):
 
     # Calcola concentrazioni con modello gaussiano
     C1, (x, y, z), times, stability, wind_dir, stab_label, wind_label = run_dispersion_model(config)
-    #print(wind_dir)
+    """print(type(C1), C1.shape)
+    print(type(C1[0]))
+    print(type(C1[0][0][0]))
+    print(type(wind_dir), wind_dir.shape)"""
+    #print(C1)
+    #print(C1[0][0][0])
  
     # Aggiungi rumore simulato
     noise_level = round(np.random.uniform(0.0, 0.0005), 4)
-    concentrations_noisy = [add_noise(c, noise_level) for c in C1]
-    
+    concentrations_noisy = np.array([add_noise(c, noise_level) for c in C1])
+
+    """print(type(concentrations_noisy), concentrations_noisy.shape)
+    print(type(concentrations_noisy[0]))
+    print(type(concentrations_noisy[0][0][0]))"""
+
     #print(config)
     #print(noise_level)
     #plot_plan_view(C1, x, y, title=(stab_label or "") + '\n' + (wind_label or ""))
@@ -131,10 +139,13 @@ for i in range(N_SIMULATIONS):
             "sensor_y": sensor_pos[1],
             "sensor_noise": noise_level,
             "sensor_height": 2.0,  # altezza sensore fissa
-            "timestamp": datetime.now().isoformat(),
+            "days": config.days,
+            "RH": config.RH,
+            "humidify": config.humidify,
+            #"timestamp": datetime.now().isoformat(),
             "wind_type": wind_type.name,
             "wind_speed": wind_speed,
-            "wind_dir": wind_dir,
+            "wind_dir": ",".join(map(str, wind_dir.tolist())),
             "stability_profile": stab_type.name,
             "stability_value": stab_value,
             "aerosol_type": aerosol_type.name,
@@ -142,7 +153,7 @@ for i in range(N_SIMULATIONS):
             "source_y": y_src,
             "source_h": h_src,
             "emission_rate": Q,
-            "concentration": conc,  
+            "concentration": ",".join(map(str, conc.tolist())),  
         }
         #for t_idx, c_val in enumerate(conc):
         #    row[f"c_t{t_idx}"] = c_val
@@ -151,7 +162,7 @@ for i in range(N_SIMULATIONS):
 
 # Salvataggio CSV
 df = pd.DataFrame(data_records)
-csv_path = os.path.join(SAVE_DIR, "nps_simulated_dataset_gaussiano_0208_v2.csv")
+csv_path = os.path.join(SAVE_DIR, "nps_simulated_dataset_gaussiano_0308_v3.csv")
 df.to_csv(csv_path, index=False)
 
 print(f"\nDataset generato e salvato in {csv_path}")
