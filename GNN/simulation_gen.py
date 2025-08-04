@@ -1,20 +1,18 @@
 import numpy as np
 import pandas as pd
 import os
-import numpy as np
 import random
-from datetime import datetime
 import sys
-import matplotlib.pyplot as plt
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'gaussianPuff')))
 from config import ModelConfig, StabilityType, WindType, OutputType, NPS, PasquillGiffordStability
 from gaussianModel import run_dispersion_model
-from plot_utils import plot_plan_view
+from scipy.interpolate import RegularGridInterpolator
 
 # Parametri generali
 N_SIMULATIONS = 1000
 N_SENSORS = 5
 SAVE_DIR = "./GNN/dataset"
+SAVE_DIR_CONC_REAL= "./GNN/dataset/real_dispersion"
 BINARY_MAP_PATH = os.path.join(os.path.dirname(__file__), "binary_maps_data/benevento_italy_full_map.npy")
 
 os.makedirs(SAVE_DIR, exist_ok=True)
@@ -58,7 +56,7 @@ def sample_meteorology():
                                       PasquillGiffordStability.MODERATELY_STABLE, 
                                       PasquillGiffordStability.VERY_STABLE]) if stability_type == StabilityType.CONSTANT else 0
     
-    wind_speed = assign_wind_speed(stability_value)
+    wind_speed = assign_wind_speed(stability_value) # type: ignore
 
     return wind_speed, wind_type, stability_type, stability_value
 
@@ -99,7 +97,7 @@ for i in range(N_SIMULATIONS):
         humidify=humidify,
         RH=round(np.random.uniform(0, 0.99),2) if humidify else 0.0,
         stability_profile=stab_type,
-        stability_value=stab_value,
+        stability_value=stab_value, # type: ignore
         wind_type=wind_type,
         wind_speed=wind_speed,
         output=OutputType.PLAN_VIEW,
@@ -110,33 +108,46 @@ for i in range(N_SIMULATIONS):
 
     # Calcola concentrazioni con modello gaussiano
     C1, (x, y, z), times, stability, wind_dir, stab_label, wind_label = run_dispersion_model(config)
-    """print(type(C1), C1.shape)
-    print(type(C1[0]))
-    print(type(C1[0][0][0]))
-    print(type(wind_dir), wind_dir.shape)"""
-    #print(C1)
-    #print(C1[0][0][0])
+
+    print(type(x), x.shape)
+    print(type(y), y.shape)
  
     # Aggiungi rumore simulato
     noise_level = round(np.random.uniform(0.0, 0.0005), 4)
     concentrations_noisy = np.array([add_noise(c, noise_level) for c in C1])
 
-    """print(type(concentrations_noisy), concentrations_noisy.shape)
+    print(type(concentrations_noisy), concentrations_noisy.shape)
     print(type(concentrations_noisy[0]))
-    print(type(concentrations_noisy[0][0][0]))"""
+    print(type(concentrations_noisy[0][0][0]))
 
-    #print(config)
-    #print(noise_level)
-    #plot_plan_view(C1, x, y, title=(stab_label or "") + '\n' + (wind_label or ""))
-    #plot_plan_view(concentrations_noisy, x, y, title=(stab_label or "") + '\n' + (wind_label or ""))
+    filename = f"sim_{i}_conc_real_0408_v3.npy"
+    np.save(os.path.join(SAVE_DIR_CONC_REAL, filename), concentrations_noisy)
+
+    x_sorted = np.sort(np.unique(x))
+    y_sorted = np.sort(np.unique(y))
+    times = np.sort(np.unique(times))
+    # Riordina i dati lungo gli assi corrispondenti
+    C_sorted = concentrations_noisy
+
+    # Interpolazione regolare per ottenere valori di concentrazione nei punti dei sensori
+    interp_func = RegularGridInterpolator((x_sorted, y_sorted, times), C_sorted, bounds_error=False, fill_value=0.0)
 
     # Salva record per ogni sensore e ogni simulazione
-    for sid, (sensor_pos, conc) in enumerate(zip(sensors, concentrations_noisy)):
+    for sid, (sensor_x, sensor_y) in enumerate(sensors):
+
+        # Converti le coordinate reali sensore (sensor_x, sensor_y) in coordinate di griglia (ad esempio intorno alla cella più vicina)
+        sensor_x_grid = int(np.clip(sensor_x, 0, C1.shape[0] - 1))
+        sensor_y_grid = int(np.clip(sensor_y, 0, C1.shape[1] - 1))
+
+        conc= np.array([interp_func((sensor_x, sensor_y, t)) for t in times])
+        print(type(conc), conc.shape)
+        #plot_timeseries(times, conc, sensor_id=sid)
+        
         row = {
             "simulation_id": i,
             "sensor_id": sid,
-            "sensor_x": sensor_pos[0],
-            "sensor_y": sensor_pos[1],
+            "sensor_x": sensor_x,
+            "sensor_y": sensor_y,
             "sensor_noise": noise_level,
             "sensor_height": 2.0,  # altezza sensore fissa
             "days": config.days,
@@ -153,7 +164,8 @@ for i in range(N_SIMULATIONS):
             "source_y": y_src,
             "source_h": h_src,
             "emission_rate": Q,
-            "concentration": ",".join(map(str, conc.tolist())),  
+            "real_concentration": filename,
+            "contratio_series": ",".join(map(str, conc))
         }
         #for t_idx, c_val in enumerate(conc):
         #    row[f"c_t{t_idx}"] = c_val
@@ -162,7 +174,7 @@ for i in range(N_SIMULATIONS):
 
 # Salvataggio CSV
 df = pd.DataFrame(data_records)
-csv_path = os.path.join(SAVE_DIR, "nps_simulated_dataset_gaussiano_0308_v3.csv")
+csv_path = os.path.join(SAVE_DIR, "nps_simulated_dataset_gaussiano_0408_v4.csv")
 df.to_csv(csv_path, index=False)
 
 print(f"\nDataset generato e salvato in {csv_path}")

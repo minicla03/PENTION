@@ -22,7 +22,6 @@ def plot_plan_view(C1, x, y, title):
     plt.tight_layout()
     plt.show()
 
-
 def animate_plan_view(C1, x, y, binary_map=None, sensor_locs=None, interval=200, save_path=None):
     """
     Anima la dispersione temporale su mappa planare.
@@ -54,7 +53,7 @@ def animate_plan_view(C1, x, y, binary_map=None, sensor_locs=None, interval=200,
 
     # Overlay edifici
     if binary_map is not None:
-        buildings_overlay = ax.imshow((binary_map == 0), extent=[x.min(), x.max(), y.min(), y.max()],
+        buildings_overlay = ax.imshow((binary_map == 0), extent=(x.min(), x.max(), y.min(), y.max()),
                                       origin='lower', cmap='Greys', alpha=0.3)
 
     # Overlay sensori
@@ -228,9 +227,6 @@ def plot_sensors_on_map(sensor_positions, mappa):
         folium.Marker(location=pos, popup=f"Sensore {i+1}", icon=folium.Icon(color='blue')).add_to(mappa)
     return mappa
 
-import matplotlib.pyplot as plt
-import numpy as np
-
 def plot_plan_view_with_mask(C1, x, y, binary_map, sensor_locs=None, title="", save_path=None, show=True):
     """
     Plotta la media temporale della concentrazione con sovrapposizione della mappa binaria di Benevento.
@@ -262,7 +258,7 @@ def plot_plan_view_with_mask(C1, x, y, binary_map, sensor_locs=None, title="", s
     c.set_clim(vmin, vmax)
 
     # Overlay edifici (dove binary_map == 0)
-    ax.imshow((binary_map == 0), extent=[x.min(), x.max(), y.min(), y.max()],
+    ax.imshow((binary_map == 0), extent=(x.min(), x.max(), y.min(), y.max()),
               origin='lower', cmap='Greys', alpha=0.3)
 
     # Sensori opzionali
@@ -290,3 +286,42 @@ def plot_plan_view_with_mask(C1, x, y, binary_map, sensor_locs=None, title="", s
         plt.close(fig)
 
     return fig, ax
+
+def plot_concentration_with_sensors(C, x, y, sensors, source, times, time_index=0, title=""):
+    """
+    C: array (X, Y, T)
+    x, y: assi griglia
+    sensors: lista di tuple (x, y)
+    source: tuple (x_src, y_src)
+    """
+    conc_slice = C[:, :, time_index]
+
+    extent = (x.min(), x.max(), y.min(), y.max())
+    fig, ax = plt.subplots(figsize=(8, 6))
+    im=ax.imshow(conc_slice.T, origin='lower', extent=extent, cmap='viridis')
+
+    plt.colorbar(im, ax=ax, label="Concentrazione (a.u.)")
+
+    # Sensori
+    sensors_x, sensors_y = zip(*sensors)
+    ax.scatter(sensors_x, sensors_y, c="red", marker="o", s=50, label="Sensori")
+
+    # Sorgente
+    ax.scatter(source[0], source[1], c="black", marker="*", s=100, label="Sorgente")
+
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_title(title or f"Concentrazione al tempo t={round(times[time_index],2)}")
+    ax.legend()
+    plt.tight_layout()
+    plt.show()
+
+def plot_timeseries(times, conc, sensor_id=None):
+    plt.figure(figsize=(8,4))
+    plt.plot(times, conc, marker='o')
+    plt.xlabel("Tempo")
+    plt.ylabel("Concentrazione")
+    title = f"Profilo temporale sensore {sensor_id}" if sensor_id is not None else "Profilo temporale"
+    plt.title(title)
+    plt.grid()
+    plt.show()

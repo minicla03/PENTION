@@ -43,7 +43,7 @@ def generate_binary_map(city: str = "Benevento, Italy", grid_size: int = 300) ->
     logging.info(f"Buildings projected to EPSG:{projected_buildings_crs}.")
 
     # Get full bounding box of all buildings
-    x_min, y_min, x_max, y_max = urban_polygon_geom.bounds
+    x_min, y_min, x_max, y_max = urban_polygon_geom.bounds # type: ignore
     logging.info(f"Total bounds: xmin={x_min:.1f}, ymin={y_min:.1f}, xmax={x_max:.1f}, ymax={y_max:.1f}")
 
     # Compute grid cell size
@@ -108,7 +108,7 @@ if __name__ == "__main__":
 
         os.makedirs(os.path.dirname(output_filename), exist_ok=True)
         np.save(output_filename, binary_map)
-        np.save(metadata_filename, metadata)
+        np.save(metadata_filename, metadata) # type: ignore
 
         logging.info(f"Binary map saved to '{output_filename}'. Shape: {binary_map.shape}")
         

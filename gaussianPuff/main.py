@@ -16,7 +16,6 @@ def add_noise(concentrations, noise_level=0.05):
     return np.clip(noisy_conc, 0, None)
     #return noisy_conc.tolist()
 
-
 if __name__ == "__main__":
 
     origin_lat, origin_lon = 41.1305, 14.7826
