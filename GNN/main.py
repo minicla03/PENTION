@@ -6,13 +6,13 @@ from MCxM import MCxM_GNN
 from torch_geometric.loader import DataLoader
 
 from graph_gen import create_graph, plot_graph
-from model_train_function import train, evaluate_and_visualize
+from model_train_function import train, evaluate
 from plot_utils_gnn import plot_comparison_maps
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BINARY_MAP_PATH = os.path.join(SCRIPT_DIR, "binary_maps_data", "benevento_italy_full_map.npy")
 METADATA_MAP_PATH = os.path.join(SCRIPT_DIR, "binary_maps_data", "benevento_italy_metadata.npy")
-DATASET_PATH = os.path.join(SCRIPT_DIR, "dataset", "nps_simulated_dataset_gaussiano_0408_v4_processed_reduced.csv")
+DATASET_PATH = os.path.join(SCRIPT_DIR, "dataset", "nps_simulated_dataset_gaussiano_0608_processed.csv")
 REAL_CONC_PATH = os.path.join(SCRIPT_DIR, "dataset", "real_dispersion")
 PROCESSED_GRAPHS_PATH = os.path.join(SCRIPT_DIR, "processed_graphs_sensor.pt")
 
@@ -26,13 +26,14 @@ if __name__ == "__main__":
     if os.path.exists(PROCESSED_GRAPHS_PATH):
         graph_list = torch.load(PROCESSED_GRAPHS_PATH, map_location='cpu', weights_only=False)
         print(graph_list[0])
-        plot_graph(graph_list[0], binary_map, title="Esempio di grafo da simulazione")
         print(f"Loaded processed graphs from {PROCESSED_GRAPHS_PATH}")
     else:
         graph_list= create_graph(datset_copy, binary_map, sensor=True)
-        plot_graph(graph_list[0], title="Esempio di grafo da sensori")
         torch.save(graph_list, PROCESSED_GRAPHS_PATH)
         print(f"Processed graphs saved to {PROCESSED_GRAPHS_PATH}")
+
+    for i in range(0, len(graph_list), 100):
+        plot_graph(graph_list[i], binary_map, f"graph_{i}.png")
 
     #  Training setup 
     device = torch.device('mps' if torch.backends.mps.is_available() else ('cuda' if torch.cuda.is_available() else 'cpu'))
@@ -58,7 +59,7 @@ if __name__ == "__main__":
     """val_loss, val_mae, val_rmse, val_r2 = """
     """ print(f"Final Evaluation — Train MSE: {loss_train:.6f} | Val MSE: {val_loss:.6f} | "
         f"MAE: {val_mae:.6f} | RMSE: {val_rmse:.6f} | R²: {val_r2:.4f}")"""
-    evaluate_and_visualize(model, test_loader, device, binary_map)
+    evaluate(model, test_loader, device, binary_map)
 
     # Visualizza mappa errore spaziale per un esempio del test set
     sample_data = test_dataset[0].to(device)

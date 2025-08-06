@@ -4,9 +4,9 @@ import os
 from torch_geometric.data import Data
 import torch_geometric.utils as pyg_utils
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 from tqdm import tqdm
 import networkx as nx
-from sklearn.preprocessing import LabelEncoder
 
 def create_graph(datset_copy, binary_map, t_idx=300, sensor=False):
     graph_list=[]
@@ -35,26 +35,16 @@ def create_graph_from_sensors(rows, binary_map, t_idx=300):
     pos_list = []
     conc_targets = []
 
-    # Prepara encoder per le stringhe
-    le_wind_type = LabelEncoder()
-    le_aerosol = LabelEncoder()
-    le_stability = LabelEncoder()
-
-    # Fit encoder su tutto il dataset una volta
-    le_wind_type.fit(rows['wind_type'])
-    le_aerosol.fit(rows['aerosol_type'])
-    le_stability.fit(rows['stability_value'])
-
     print(f"Creating graph with {num_nodes} nodes from {len(rows)} sensors")
 
     #nodo della sorgente
     row_data = rows.iloc[0]
     source_features = [
         row_data['source_x'], row_data['source_y'], row_data['source_h'], row_data['emission_rate'], 
-        row_data['wind_speed'],  row_data['wind_dir_cos'], row_data['wind_dir_sin'], le_wind_type.transform([row_data['wind_type']])[0],
+        row_data['wind_speed'],  row_data['wind_dir_cos'], row_data['wind_dir_sin'], row_data['wind_type'],
         row_data['RH'],
-        le_stability.transform([row_data['stability_value']])[0], 
-        le_aerosol.transform([row_data['aerosol_type']])[0],
+        row_data['stability_value'], 
+       row_data['aerosol_type'],
         1.0, # source indicator
         0.0,  # filler per sensor_noise
     ]
@@ -67,8 +57,8 @@ def create_graph_from_sensors(rows, binary_map, t_idx=300):
         sensor_features = [
                 sensor_row['sensor_x'], sensor_row['sensor_y'], sensor_row['sensor_noise'],
                 row_data['wind_speed'], row_data['RH'], row_data['wind_dir_cos'], row_data['wind_dir_sin'],
-                row_data['wind_dir_sin'], le_stability.transform([row_data['stability_value']])[0],
-                le_aerosol.transform([row_data['aerosol_type']])[0], 
+                row_data['wind_dir_sin'], row_data['stability_value'],
+                row_data['aerosol_type'], 
                 0.0, # sensor indicator
                 0.0, # filler per emission_rate
                 0.0 # filler per source_h
@@ -102,7 +92,7 @@ def create_graph_from_sensors(rows, binary_map, t_idx=300):
             distance = np.sqrt((x2-x1)**2 + (y2-y1)**2)
             
             # Calcola ostruzione da edifici
-            building_obstruction = calculate_building_obstruction(H, x1, y1, x2, y2)
+            building_obstruction = calculate_building_obstruction(binary_map, H, x1, y1, x2, y2)
             
             # Features addizionali per gli edge
             wind_direction_influence = abs(np.cos(np.arctan2(y2-y1, x2-x1)))
@@ -112,11 +102,11 @@ def create_graph_from_sensors(rows, binary_map, t_idx=300):
             edge_attr = [distance, building_obstruction, wind_direction_influence]
             edge_features.extend([edge_attr, edge_attr])
         
-    # Converti in tensori
+    # Conversione in tensori    
     x = torch.FloatTensor(node_features)
     edge_index = torch.LongTensor(edge_index).t().contiguous()
     edge_attr = torch.FloatTensor(edge_features)
-    y = torch.FloatTensor([np.mean(sensor_concentrations)])  # Solo le concentrazioni dei sensori
+    y = torch.FloatTensor([np.mean(sensor_concentrations)]) 
     
     data =  Data(x=x, edge_index=edge_index, edge_attr=edge_attr, y=y)
     
@@ -206,7 +196,6 @@ def plot_graph(data, binary_map=None, title="Grafo con dettagli"):
     emission_rate = nx.get_node_attributes(G, 'emission_rate')
     sensor_noise = nx.get_node_attributes(G, 'sensor_noise')
 
-    # Colori e forme nodi
     node_colors = ['red' if is_source[n] else 'blue' for n in G.nodes]
     node_shapes = {True: 'o', False: 's'}  # o cerchio per sorgente, s quadrato per sensore
     
@@ -215,8 +204,6 @@ def plot_graph(data, binary_map=None, title="Grafo con dettagli"):
     if binary_map is not None:
         plt.imshow(binary_map, cmap='gray_r', origin='lower')
 
-    
-    # Disegna i nodi con forme separate
     for shape in set(node_shapes.values()):
         nodes_of_shape = [n for n in G.nodes if node_shapes[is_source[n]] == shape]
         nx.draw_networkx_nodes(G, pos, nodelist=nodes_of_shape, 
@@ -225,7 +212,6 @@ def plot_graph(data, binary_map=None, title="Grafo con dettagli"):
                                node_size=[(emission_rate.get(n, 0)*1000 + 100) if is_source[n] else (sensor_noise.get(n, 0)*500 + 100) for n in nodes_of_shape],
                                alpha=0.8)
     
-    # Disegna gli archi colorandoli in base all'ostruzione
     edges = G.edges(data=True)
     edge_colors = [plt.cm.viridis(e[2]['obstruction']) for e in edges]
     nx.draw_networkx_edges(G, pos, edge_color=edge_colors, arrowsize=15, width=2)
@@ -234,11 +220,10 @@ def plot_graph(data, binary_map=None, title="Grafo con dettagli"):
     edge_labels = {(e[0], e[1]): f"{e[2]['obstruction']:.2f}" for e in edges}
     nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=8)
     
-    # Etichette nodi con coordinate (arrotondate)
+    # Etichette nodi con coordinate
     labels = {n: f"{pos[n][0]:.1f},{pos[n][1]:.1f}" for n in G.nodes}
     nx.draw_networkx_labels(G, pos, labels, font_size=8)
 
-    import matplotlib.patches as mpatches
     red_patch = mpatches.Patch(color='red', label='Sorgente')
     blue_patch = mpatches.Patch(color='blue', label='Sensore')
     building_patch = mpatches.Patch(color='black', label='Spazio libero')

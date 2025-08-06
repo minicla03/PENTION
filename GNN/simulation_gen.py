@@ -9,8 +9,8 @@ from gaussianModel import run_dispersion_model
 from scipy.interpolate import RegularGridInterpolator
 
 # Parametri generali
-N_SIMULATIONS = 100
-N_SENSORS = 5
+N_SIMULATIONS = 1000
+N_SENSORS = 10
 SAVE_DIR = "./GNN/dataset"
 SAVE_DIR_CONC_REAL= "./GNN/dataset/real_dispersion"
 BINARY_MAP_PATH = os.path.join(os.path.dirname(__file__), "binary_maps_data/benevento_italy_full_map.npy")
@@ -174,7 +174,7 @@ for i in range(N_SIMULATIONS):
 
 # Salvataggio CSV
 df = pd.DataFrame(data_records)
-csv_path = os.path.join(SAVE_DIR, "nps_simulated_dataset_gaussiano_0408_v4_reduced.csv")
+csv_path = os.path.join(SAVE_DIR, "nps_simulated_dataset_gaussiano_0608.csv")
 df.to_csv(csv_path, index=False)
 
 print(f"\nDataset generato e salvato in {csv_path}")
