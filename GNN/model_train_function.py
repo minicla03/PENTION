@@ -79,5 +79,7 @@ def evaluate(model, loader, device, binary_map):
     plt.xlabel("Target")
     plt.ylabel("Predizione")
     plt.title("Predizione vs Target")
+    plt.xscale('log')
+    plt.yscale('log')
     plt.grid(True)
     plt.show()

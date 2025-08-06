@@ -20,6 +20,7 @@ if __name__ == "__main__":
     binary_map = np.load(BINARY_MAP_PATH)
     metadata = np.load(METADATA_MAP_PATH, allow_pickle=True).item()
     datset_copy = pd.read_csv(DATASET_PATH)
+    n_sensors=10
 
     datset_copy['contratio_series'] = datset_copy['contratio_series'].map(lambda s: np.array(list(map(float, s.split(',')))))
 
@@ -28,12 +29,12 @@ if __name__ == "__main__":
         print(graph_list[0])
         print(f"Loaded processed graphs from {PROCESSED_GRAPHS_PATH}")
     else:
-        graph_list= create_graph(datset_copy, binary_map, sensor=True)
+        graph_list= create_graph(datset_copy, binary_map, n_sensors, sensor=True)
         torch.save(graph_list, PROCESSED_GRAPHS_PATH)
         print(f"Processed graphs saved to {PROCESSED_GRAPHS_PATH}")
 
-    for i in range(0, len(graph_list), 100):
-        plot_graph(graph_list[i], binary_map, f"graph_{i}.png")
+    
+    plot_graph(graph_list[0], binary_map, f"graph_example.png")
 
     #  Training setup 
     device = torch.device('mps' if torch.backends.mps.is_available() else ('cuda' if torch.cuda.is_available() else 'cpu'))

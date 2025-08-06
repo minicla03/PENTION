@@ -8,11 +8,11 @@ import matplotlib.patches as mpatches
 from tqdm import tqdm
 import networkx as nx
 
-def create_graph(datset_copy, binary_map, t_idx=300, sensor=False):
+def create_graph(datset_copy, binary_map, n_sensor=10, t_idx=300, sensor=False):
     graph_list=[]
     if sensor:
-        for idx in tqdm(range(0, len(datset_copy), 5), desc="Creating graphs from sensors"):
-            graph = create_graph_from_sensors(datset_copy.iloc[idx:idx+5], binary_map)
+        for idx in tqdm(range(0, len(datset_copy), n_sensor), desc="Creating graphs from sensors"):
+            graph = create_graph_from_sensors(datset_copy.iloc[idx:idx+n_sensor], binary_map, n_sensor)
             graph_list.append(graph)
     else:
         for idx, row in tqdm(datset_copy.iterrows(), total=len(datset_copy), desc="Creating graphs from simulations"):
@@ -20,11 +20,11 @@ def create_graph(datset_copy, binary_map, t_idx=300, sensor=False):
             graph_list.append(graph)
     return graph_list
 
-def create_graph_from_sensors(rows, binary_map, t_idx=300):
+def create_graph_from_sensors(rows, binary_map, t_idx=300, n_sensor=10):
     """
-    rows: DataFrame con 5 righe corrispondenti a una simulazione
+    rows: DataFrame con N righe corrispondenti a una simulazione
     """
-    assert len(rows) == 5, "Ogni grafo deve essere costruito da 5 righe (5 sensori)"
+    assert len(rows) == 10, "Ogni grafo deve essere costruito da N righe (N sensori)"
     
     H, W = binary_map.shape
     num_nodes = len(rows)
@@ -35,7 +35,7 @@ def create_graph_from_sensors(rows, binary_map, t_idx=300):
     pos_list = []
     conc_targets = []
 
-    print(f"Creating graph with {num_nodes} nodes from {len(rows)} sensors")
+    #print(f"Creating graph with {num_nodes} nodes from {len(rows)} sensors")
 
     #nodo della sorgente
     row_data = rows.iloc[0]

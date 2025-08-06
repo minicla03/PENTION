@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import folium
 from folium.plugins import HeatMap
 import matplotlib.animation as animation
+from mpl_toolkits.mplot3d import Axes3D
 
 def plot_plan_view(C1, x, y, title):
     plt.figure(figsize=(8, 6))
@@ -19,6 +20,82 @@ def plot_plan_view(C1, x, y, title):
     plt.title(title)
     cb = plt.colorbar()
     cb.set_label(r'$\mu g \cdot m^{-3}$')
+    plt.tight_layout()
+    plt.show()
+
+def plot_surface_view_3d(C, x, y, z=None, times=None, 
+                                   source=None, sensors=None, 
+                                   t_index=None, z_index=None, 
+                                   binary_map= None,
+                                   title="Distribuzione di concentrazione (3D)"):
+
+    """
+    C       : ndarray (nx, ny, nt) oppure (nx, ny, nz, nt) se disponibile
+    x, y    : coordinate spaziali (1D)
+    z       : (opzionale) array z se 4D
+    times   : (opzionale) array tempi
+    source  : (x, y) posizione sorgente
+    sensors : lista [(x1, y1), (x2, y2), ...]
+    t_index : tempo da visualizzare (se None -> media su tempo)
+    z_index : piano verticale da visualizzare (se None -> primo piano)
+    """
+
+    is_4d = C.ndim == 4
+
+    if is_4d:
+        if z_index is None:
+            z_index = 0
+        C_plane = C[:, :, z_index, :]  # estrai piano z
+    else:
+        C_plane = C
+
+    if t_index is None:
+        data = np.mean(C_plane, axis=2)
+        time_str = "media temporale"
+    else:
+        data = C_plane[:, :, t_index]
+        time_str = f"t={times[t_index]:.2f}" if times is not None else f"t_index={t_index}"
+
+    # µg/m³ conversion
+    data = data * 1e6
+
+    # Meshgrid
+    X, Y = np.meshgrid(x, y)
+    Z = data.T  # attenzione: trasposto per combaciare con meshgrid
+
+    # Colormap contrastata
+    vmin = np.percentile(Z, 5)
+    vmax = np.percentile(Z, 95)
+
+    fig = plt.figure(figsize=(10, 7))
+    ax = fig.add_subplot(111, projection='3d')
+
+    surf = ax.plot_surface(X, Y, Z, cmap='jet', vmin=vmin, vmax=vmax, linewidth=0, antialiased=True)
+
+    # Overlay mappa edifici
+    H, W = binary_map.shape
+    y_map, x_map = np.meshgrid(np.arange(W), np.arange(H))
+    buildings = np.where(binary_map == 0)
+    ax.bar3d(buildings[1], buildings[0], 0, 1, 1, np.max(Z)*0.1, color='gray', alpha=0.5, shade=True, label="Edifici")
+
+    # Overlay sorgente
+    if source is not None:
+        ax.scatter(source[0], source[1], np.max(Z)*1.1, color='cyan', marker='*', s=200, label='Sorgente')
+
+    # Overlay sensori
+    if sensors is not None:
+        for sx, sy in sensors:
+            ax.scatter(sx, sy, np.max(Z)*1.05, color='lime', marker='o', s=80)
+        ax.scatter([], [], [], color='lime', marker='o', label='Sensori')
+
+    ax.set_xlabel('x (m)')
+    ax.set_ylabel('y (m)')
+    ax.set_zlabel(r'Concentrazione [$\mu g \cdot m^{-3}$]')
+
+    ax.set_title(f"{title}\n({time_str}, z={z[z_index]:.2f} m)" if is_4d and z is not None else f"{title}\n({time_str})")
+
+    fig.colorbar(surf, ax=ax, shrink=0.6, aspect=10, label=r'$\mu g \cdot m^{-3}$')
+    ax.legend()
     plt.tight_layout()
     plt.show()
 
