@@ -205,10 +205,7 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
 GNN/processed_graphs.pt
-GNN/dataset/real_dispersion
-GNN/dataset/nps_simulated_dataset_gaussiano_0408_v4.csv
-GNN/dataset/nps_simulated_dataset_gaussiano_0408_v4_processed.csv
-GNN/dataset/nps_simulated_dataset_gaussiano_0308_v3.csv
-GNN/dataset/nps_simulated_dataset_gaussiano_0208_v2.csv
-GNN/dataset/nps_simulated_dataset_gaussiano_0208.csv
+GNN/processed_graphs_sensor.pt
+GNN/dataset
