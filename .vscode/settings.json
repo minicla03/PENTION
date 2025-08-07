@@ -1,5 +1,7 @@
 {
     "python.analysis.extraPaths": [
-        "./gaussianPuff"
+        "./gaussianPuff",
+        "./ClassificatoreNPS",
+        "./GNN"
     ]
 }

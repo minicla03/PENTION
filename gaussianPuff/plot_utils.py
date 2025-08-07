@@ -5,22 +5,90 @@ import folium
 from folium.plugins import HeatMap
 import matplotlib.animation as animation
 from mpl_toolkits.mplot3d import Axes3D
+from scipy import integrate
+import scipy
+from matplotlib.patches import Circle
 
-def plot_plan_view(C1, x, y, title):
+
+def plot_plan_view(C1, x, y, title, puff_list=None, stability_class=1, n_show=10):
     plt.figure(figsize=(8, 6))
-    data = np.mean(C1, axis=2) * 1e6
+
+    # Integra la concentrazione nel tempo lungo l'asse 2 (T)
+    data = np.trapz(C1, axis=2) * 1e6  # in µg/m³
 
     vmin = np.percentile(data, 5)
     vmax = np.percentile(data, 95)
 
-    plt.pcolor(x, y, data, cmap='jet')
+    # Plot della concentrazione integrata
+    plt.pcolor(x, y, data, cmap='jet', shading='auto')
     plt.clim(vmin, vmax) 
     plt.xlabel('x (m)')
     plt.ylabel('y (m)')
     plt.title(title)
     cb = plt.colorbar()
     cb.set_label(r'$\mu g \cdot m^{-3}$')
+
+    # Se ci sono puff, plottali sopra
+    if puff_list is not None and len(puff_list) > 0:
+        # Parametri σ_y empirici per classi A-F (Pasquill-Gifford)
+        a_vals = [0.22, 0.16, 0.11, 0.08, 0.06, 0.04]
+        b_vals = [0.90, 0.88, 0.86, 0.83, 0.80, 0.78]
+
+        a = a_vals[stability_class - 1]
+        b = b_vals[stability_class - 1]
+
+        for i, puff in enumerate(puff_list):
+            """if i % n_show != 0:
+                continue  # salta puff intermedi"""
+
+            distance = np.sqrt((puff.x)**2 + (puff.y)**2)
+            sigma_y = a * (distance + 1)**b  # evita 0^b
+
+            # Cerchio con raggio 2σ_y
+            circle = Circle((puff.x, puff.y), 2 * sigma_y, color='white', fill=False, lw=1.5)
+            plt.gca().add_patch(circle)
+
+            # Punto centrale
+            plt.plot(puff.x, puff.y, 'wo', markersize=3)
+
+        plt.legend(["Puff center (σ)"], loc='lower right')
+
+    plt.axis('equal')
     plt.tight_layout()
+    plt.show()
+
+def plot_surface_time(C1, times, x_idx, y_idx, stability, stab_label, wind_label):
+
+    def smooth(y, box_pts):
+        box = np.ones(box_pts)/box_pts
+        y_smooth = np.convolve(y, box, mode='same')
+        return y_smooth
+
+    fig, (ax1, ax2) = plt.subplots(2, sharex=True, figsize=(10, 6))
+    signal = 1e6 * np.squeeze(C1[y_idx, x_idx, :])
+    ax1.plot(times, signal, label="Hourly mean")
+    ax1.plot(times, smooth(signal, 24), 'r', label="Daily mean")
+    ax1.set_ylabel('Mass loading ($m$ g m$^{-3}$)')
+    ax1.set_title(stab_label + '\n' + wind_label)
+    ax1.legend()
+
+    ax2.plot(times, stability)
+    ax2.set_xlabel('Time (days)')
+    ax2.set_ylabel('Stability')
+
+    plt.tight_layout()
+    plt.show()
+
+def plot_height_slice(C1, y, z, stab_label, wind_label):
+    plt.figure(figsize=(8, 6))
+    data = np.mean(C1, axis=2) * 1e6
+    plt.pcolor(y,z, data, cmap='jet')      
+    plt.clim(0,1e2)
+    plt.xlabel('y (metres)')
+    plt.ylabel('z (metres)')
+    plt.title(stab_label + '\n' + wind_label)
+    cb1=plt.colorbar()
+    cb1.set_label(r'$\mu$ g m$^{-3}$')
     plt.show()
 
 def plot_surface_view_3d(C, x, y, z=None, times=None, 
@@ -155,55 +223,6 @@ def animate_plan_view(C1, x, y, binary_map=None, sensor_locs=None, interval=200,
         print(f"✅ Animazione salvata in: {save_path}")
     else:
         plt.show()
-
-def plot_plan_view_2(C_mean, x, y, title):
-    plt.figure(figsize=(8, 6))
-
-    vmin = np.percentile(C_mean, 5)
-    vmax = np.percentile(C_mean, 95)
-
-    plt.pcolor(x, y, C_mean*1e6, cmap='jet')
-    plt.clim(vmin, vmax)
-    plt.xlabel('x (m)')
-    plt.ylabel('y (m)')
-    plt.title(title)
-    cb = plt.colorbar()
-    cb.set_label(r'$\mu g \cdot m^{-3}$')
-    plt.tight_layout()
-    plt.show()
-
-def plot_surface_time(C1, times, x_idx, y_idx, stability, stab_label, wind_label):
-    def smooth(y, box_pts):
-        box = np.ones(box_pts)/box_pts
-        y_smooth = np.convolve(y, box, mode='same')
-        return y_smooth
-
-    fig, (ax1, ax2) = plt.subplots(2, sharex=True, figsize=(10, 6))
-    signal = 1e6 * np.squeeze(C1[y_idx, x_idx, :])
-    ax1.plot(times, signal, label="Hourly mean")
-    ax1.plot(times, smooth(signal, 24), 'r', label="Daily mean")
-    ax1.set_ylabel('Mass loading ($m$ g m$^{-3}$)')
-    ax1.set_title(stab_label + '\n' + wind_label)
-    ax1.legend()
-
-    ax2.plot(times, stability)
-    ax2.set_xlabel('Time (days)')
-    ax2.set_ylabel('Stability')
-
-    plt.tight_layout()
-    plt.show()
-
-def plot_height_slice(C1, y, z, stab_label, wind_label):
-    plt.figure(figsize=(8, 6))
-    data = np.mean(C1, axis=2) * 1e6
-    plt.pcolor(y,z, data, cmap='jet')      
-    plt.clim(0,1e2)
-    plt.xlabel('y (metres)')
-    plt.ylabel('z (metres)')
-    plt.title(stab_label + '\n' + wind_label)
-    cb1=plt.colorbar()
-    cb1.set_label(r'$\mu$ g m$^{-3}$')
-    plt.show()
 
 def plot_puff_on_map(C1, x_grid, y_grid, center_lat, center_lon, timestep=-1, threshold=0.00, cutoff_norm=0.10, zoom_start=13, sensor_locs=None):
     deg_per_m = 1 / 111320
@@ -393,12 +412,3 @@ def plot_concentration_with_sensors(C, x, y, sensors, source, times, time_index=
     plt.tight_layout()
     plt.show()
 
-def plot_timeseries(times, conc, sensor_id=None):
-    plt.figure(figsize=(8,4))
-    plt.plot(times, conc, marker='o')
-    plt.xlabel("Tempo")
-    plt.ylabel("Concentrazione")
-    title = f"Profilo temporale sensore {sensor_id}" if sensor_id is not None else "Profilo temporale"
-    plt.title(title)
-    plt.grid()
-    plt.show()

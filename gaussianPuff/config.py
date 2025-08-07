@@ -1,7 +1,16 @@
 #config.py
 from enum import Enum
 from dataclasses import dataclass, field
-from typing import List, Tuple
+from typing import List, Tuple, Optional
+
+class DispersionModelType(Enum):
+    PLUME = "plume"
+    PUFF = "puff"
+
+class ConfigPuff():
+    def __init__(self, puff_interval: float = 1, max_puff_age: float = 6):
+        self.puff_interval = puff_interval
+        self.max_puff_age = max_puff_age
 
 class OutputType(Enum):
     PLAN_VIEW = 1
@@ -61,5 +70,5 @@ class ModelConfig:
     dry_size: float = 60e-9
     x_slice: int = 26
     y_slice: int = 1
-    sensor_locations: List[Tuple[float, float]] = field(default_factory=list)# List of (x, y) for sensors
-
+    dispersion_model: DispersionModelType = DispersionModelType.PLUME
+    config_puff: 'Optional[ConfigPuff]' = field(default_factory=ConfigPuff) if dispersion_model == DispersionModelType.PUFF else None
