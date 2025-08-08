@@ -44,4 +44,4 @@ class MCxM_GNN(torch.nn.Module):
 
         out_graph = self.output_layer(graph_repr)  # [num_graphs, 1]
 
-        return out_graph.view(-1)  
+        return out_graph.view()  

@@ -38,12 +38,11 @@ def apply_hygroscopic_growth(C1: np.ndarray, RH: float, dry_size: float, nps_typ
 def run_dispersion_model(config: ModelConfig):
 
     #Spatial grid setup
-    dxy = 5000 / 299 #grid size in meters
+    dxy = 5000 / 499 #grid size in meters
     dz = 10
     x = np.mgrid[-2500:2500 + dxy:dxy] #-2500 to 2500 with step dxy (meter)
     y = x.copy()
     times = np.arange(1, config.days * 24 + 1) / 24.0
-    #times = np.mgrid[np:(config.days * 24 + 1) / 24.0]  # days to hours
 
     # Stability setup
     if config.stability_profile == StabilityType.CONSTANT:

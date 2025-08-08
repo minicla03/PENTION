@@ -4,8 +4,9 @@ import os
 import random
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'gaussianPuff')))
-from config import ModelConfig, StabilityType, WindType, OutputType, NPS, PasquillGiffordStability
+from config import ModelConfig, StabilityType, WindType, OutputType, NPS, PasquillGiffordStability, DispersionModelType, ConfigPuff
 from gaussianModel import run_dispersion_model
+import plot_utils
 from scipy.interpolate import RegularGridInterpolator
 
 # Parametri generali
@@ -13,7 +14,7 @@ N_SIMULATIONS = 1000
 N_SENSORS = 10
 SAVE_DIR = "./GNN/dataset"
 SAVE_DIR_CONC_REAL= "./GNN/dataset/real_dispersion"
-BINARY_MAP_PATH = os.path.join(os.path.dirname(__file__), "binary_maps_data/benevento_italy_full_map.npy")
+BINARY_MAP_PATH = os.path.join(os.path.dirname(__file__), "binary_maps_data/roma_italy_bbox.npy")
 
 os.makedirs(SAVE_DIR, exist_ok=True)
 
@@ -45,6 +46,37 @@ def assign_wind_speed(stability: PasquillGiffordStability) -> float:
         return round(random.uniform(0.5, 3.0), 2)
     else:
         return round(random.uniform(2.0, 6.0), 2)
+    
+def plot_concentrazione_su_mappa(concentrazione, binary_map, t):
+    """
+    Visualizza la concentrazione al tempo t sulla mappa, evidenziando gli edifici in nero.
+    
+    Args:
+        concentrazione (np.ndarray): array 3D (nx, ny, nt)
+        binary_map (np.ndarray): array 2D binaria (nx, ny) con 0 edificio, 1 libero
+        t (int): indice temporale
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib import cm
+    C_frame = concentrazione[:, :, t]
+    C_norm = C_frame / (C_frame.max() if C_frame.max() > 0 else 1)
+
+    # Crea immagine RGB bianca
+    img_rgb = np.ones(C_frame.shape + (3,))
+
+    # Colormap viridis per concentrazione > 0
+    colored = cm.viridis(C_norm)
+    img_rgb[C_frame > 0] = colored[C_frame > 0, :3]
+
+    # Edifici in nero dove concentrazione == 0
+    mask_edifici = (C_frame == 0) & (binary_map == 0)
+    img_rgb[mask_edifici] = [0, 0, 0]
+
+    plt.figure(figsize=(8, 6))
+    plt.imshow(img_rgb, origin='lower')
+    plt.title(f"Concentrazione e edifici (tempo {t})")
+    plt.axis('off')
+    plt.show()
 
 def sample_meteorology():
     wind_type = random.choice([WindType.CONSTANT ,WindType.PREVAILING, WindType.FLUCTUATING])
@@ -104,11 +136,19 @@ for i in range(N_SIMULATIONS):
         stacks=stacks,
         x_slice=26,
         y_slice=1,
+        dispersion_model=DispersionModelType.PLUME,
     )
 
     # Calcola concentrazioni con modello gaussiano
-    C1, (x, y, z), times, stability, wind_dir, stab_label, wind_label = run_dispersion_model(config)
+    C1, (x, y, z), times, stability, wind_dir, stab_label, wind_label, puff = run_dispersion_model(config)
+    plot_utils.plot_plan_view(C1, x, y, f"Plan View - {stab_label} - {wind_label}", puff, stability_class=PasquillGiffordStability.NEUTRAL.value)
+    binary_map=binary_map[:,:, np.newaxis]  # Aggiungi una dimensione per la compatibilità con C1
+    mask_edifici = (binary_map == 1) & (C1 != 0)
+    #img_rgb[mask_edifici] = [0, 0, 0]
+    plot_utils.plot_plan_view(mask_edifici, x, y, f"Plan View - {stab_label} - {wind_label}")
+    #plot_concentrazione_su_mappa(C1, binary_map, t=0)  # Visualizza al tempo 0
 
+    
     print(type(x), x.shape)
     print(type(y), y.shape)
  

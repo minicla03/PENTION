@@ -6,7 +6,7 @@ from Sensor import Sensor
 import numpy as np
 
 
-BINARY_MAP_PATH = os.path.join("GNN/binary_maps_data/benevento_italy_full_map.npy")
+BINARY_MAP_PATH = os.path.join("GNN/binary_maps_data/roma_italy_bbox.npy")
 N_SENSORS = 5
 
 # Caricamento mappa binaria (1 = suolo libero, 0 = edificio)
@@ -57,6 +57,9 @@ if __name__ == "__main__":
     C1, (x, y, z), times, stability, wind_dir, stab_label, wind_label, puff = result
     
     plot_utils.plot_plan_view(C1, x, y, f"Plan View - {stab_label} - {wind_label}", puff, stability_class=PasquillGiffordStability.NEUTRAL.value)
+    binary_map=binary_map[:,:, np.newaxis]  # Aggiungi una dimensione per la compatibilità con C1
+    mask_edifici = (binary_map == 1) & (C1 != 0)
+    plot_utils.plot_plan_view(mask_edifici, x, y, f"Plan View - {stab_label} - {wind_label}")
     plot_utils.plot_surface_time(C1, times, x_slice, y_slice, stability, stab_label, f"Surface Time - {stab_label} - {wind_label}")
     plot_utils.plot_height_slice(C1, y, z, stab_label, wind_label)
 
