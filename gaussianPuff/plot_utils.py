@@ -8,54 +8,65 @@ from mpl_toolkits.mplot3d import Axes3D
 from scipy import integrate
 import scipy
 from matplotlib.patches import Circle
+from windrose import WindroseAxes
 
+import numpy as np
+import matplotlib.pyplot as plt
+from windrose import WindroseAxes
+from matplotlib.patches import Circle
 
-def plot_plan_view(C1, x, y, title, puff_list=None, stability_class=1, n_show=10):
-    plt.figure(figsize=(8, 6))
+def plot_plan_view(C1, x, y, title, wind_dir=None, wind_speed=None, puff_list=None, stability_class=1, n_show=10):
+    fig, ax_main = plt.subplots(figsize=(8, 6))
 
     # Integra la concentrazione nel tempo lungo l'asse 2 (T)
-    data = np.trapz(C1, axis=2) * 1e6  # in µg/m³
-
+    data = np.trapz(C1, axis=2) * 1e6  # µg/m³ #type:ignore
     vmin = np.percentile(data, 5)
     vmax = np.percentile(data, 95)
 
     # Plot della concentrazione integrata
-    plt.pcolor(x, y, data, cmap='jet', shading='auto')
-    plt.clim(vmin, vmax) 
-    plt.xlabel('x (m)')
-    plt.ylabel('y (m)')
-    plt.title(title)
-    cb = plt.colorbar()
-    cb.set_label(r'$\mu g \cdot m^{-3}$')
+    pcm = ax_main.pcolor(x, y, data, cmap='jet', shading='auto', vmin=vmin, vmax=vmax)
+    fig.colorbar(pcm, ax=ax_main, label=r'$\mu g \cdot m^{-3}$')
+    ax_main.set_xlabel('x (m)')
+    ax_main.set_ylabel('y (m)')
+    ax_main.set_title(title)
+    ax_main.axis('equal')
 
-    # Se ci sono puff, plottali sopra
+    if wind_dir is not None and wind_speed is not None:
+        inset_pos = [0.65, 0.65, 0.3, 0.3]  # left, bottom, width, height in figure coords
+        ax_inset = WindroseAxes(fig, inset_pos)
+        fig.add_axes(ax_inset)
+
+        # Plot rosa dei venti con direzioni e velocità
+        wind_dir = np.array(wind_dir) % 360
+        wind_speed = np.full_like(wind_dir, fill_value=wind_speed, dtype=float)
+        ax_inset.bar(wind_dir, wind_speed, normed=True, opening=0.8, edgecolor='white')
+        ax_inset.set_legend(loc='lower right', title='Wind speed (m/s)')
+        ax_inset.set_title("Rosa dei venti")
+
+    # Plot puff sopra la plan view
     if puff_list is not None and len(puff_list) > 0:
         # Parametri σ_y empirici per classi A-F (Pasquill-Gifford)
         a_vals = [0.22, 0.16, 0.11, 0.08, 0.06, 0.04]
         b_vals = [0.90, 0.88, 0.86, 0.83, 0.80, 0.78]
-
         a = a_vals[stability_class - 1]
         b = b_vals[stability_class - 1]
 
         for i, puff in enumerate(puff_list):
-            """if i % n_show != 0:
-                continue  # salta puff intermedi"""
+            # if i % n_show != 0:
+            #     continue  # salta puff intermedi
 
-            distance = np.sqrt((puff.x)**2 + (puff.y)**2)
+            distance = np.sqrt(puff.x**2 + puff.y**2)
             sigma_y = a * (distance + 1)**b  # evita 0^b
 
-            # Cerchio con raggio 2σ_y
             circle = Circle((puff.x, puff.y), 2 * sigma_y, color='white', fill=False, lw=1.5)
-            plt.gca().add_patch(circle)
+            ax_main.add_patch(circle)
+            ax_main.plot(puff.x, puff.y, 'wo', markersize=3)
 
-            # Punto centrale
-            plt.plot(puff.x, puff.y, 'wo', markersize=3)
+        ax_main.legend(["Puff center (2σ)"], loc='lower right')
 
-        plt.legend(["Puff center (σ)"], loc='lower right')
-
-    plt.axis('equal')
     plt.tight_layout()
     plt.show()
+
 
 def plot_surface_time(C1, times, x_idx, y_idx, stability, stab_label, wind_label):
 
@@ -322,66 +333,6 @@ def plot_sensors_on_map(sensor_positions, mappa):
     for i, pos in enumerate(sensor_positions):
         folium.Marker(location=pos, popup=f"Sensore {i+1}", icon=folium.Icon(color='blue')).add_to(mappa)
     return mappa
-
-def plot_plan_view_with_mask(C1, x, y, binary_map, sensor_locs=None, title="", save_path=None, show=True):
-    """
-    Plotta la media temporale della concentrazione con sovrapposizione della mappa binaria di Benevento.
-
-    - C1: array (Y, X, T)
-    - x, y: meshgrid delle coordinate
-    - binary_map: array (Y, X), 1 = suolo libero, 0 = edificio
-    - sensor_locs: lista opzionale di tuple (x, y)
-    - title: titolo del grafico
-    - save_path: percorso file per salvare l'immagine (es. "mappa.png"), se None non salva
-    - show: se True mostra la figura con plt.show()
-    
-    Ritorna:
-    - fig, ax: figure e axis matplotlib per eventuali modifiche successive
-    """
-    assert C1.ndim == 3, "C1 deve essere 3D (Y, X, T)"
-    assert binary_map.shape == C1.shape[:2], "binary_map deve avere shape compatibile con C1"
-
-    # Media temporale e conversione in μg/m³
-    data = np.mean(C1, axis=2) * 1e6
-
-    vmin = np.percentile(data, 5)
-    vmax = np.percentile(data, 95)
-
-    fig, ax = plt.subplots(figsize=(10, 8))
-
-    # Mappa concentrazione
-    c = ax.pcolor(x, y, data, cmap='jet', shading='auto')
-    c.set_clim(vmin, vmax)
-
-    # Overlay edifici (dove binary_map == 0)
-    ax.imshow((binary_map == 0), extent=(x.min(), x.max(), y.min(), y.max()),
-              origin='lower', cmap='Greys', alpha=0.3)
-
-    # Sensori opzionali
-    if sensor_locs:
-        sx, sy = zip(*sensor_locs)
-        ax.scatter(sx, sy, c='black', marker='^', s=100, label='Sensori')
-        ax.legend()
-
-    ax.set_xlabel('x (m)')
-    ax.set_ylabel('y (m)')
-    ax.set_title(title)
-
-    cb = fig.colorbar(c, ax=ax)
-    cb.set_label(r'$\mu g \cdot m^{-3}$')
-
-    fig.tight_layout()
-
-    if save_path:
-        fig.savefig(save_path, dpi=300)
-        print(f"✅ Figura salvata in: {save_path}")
-
-    if show:
-        plt.show()
-    else:
-        plt.close(fig)
-
-    return fig, ax
 
 def plot_concentration_with_sensors(C, x, y, sensors, source, times, time_index=0, title=""):
     """

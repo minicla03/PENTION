@@ -3,12 +3,13 @@ import matplotlib.pyplot as plt
 from scipy.interpolate import RegularGridInterpolator
 
 class Sensor:
-    def __init__(self, sensor_id, x: float, y: float, z: float =2., noise_level: float=0.1):
+    def __init__(self, sensor_id, x: float, y: float, z: float =2., noise_level: float=0.1, is_fault: bool=False):
         self.id = sensor_id
         self.x = x
         self.y = y
         self.z = z
         self.noise_level = noise_level
+        self.is_fault = is_fault
         self.concentrations = None
         self.noisy_concentrations = None
         self.times = None
@@ -17,6 +18,14 @@ class Sensor:
         """
         Campiona il campo di concentrazione 3D (x, y, t) alla posizione del sensore.
         """
+
+        if self.is_fault:
+            print(f"Sensor {self.id} is faulty. No data sampled.")
+            self.concentrations = []
+            self.noisy_concentrations = []
+            self.times = []
+            return 
+        
         x_sorted = np.sort(np.unique(x_grid))
         y_sorted = np.sort(np.unique(y_grid))
         times = np.sort(np.unique(t_grid))

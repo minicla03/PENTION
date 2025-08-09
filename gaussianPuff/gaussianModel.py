@@ -35,13 +35,35 @@ def apply_hygroscopic_growth(C1: np.ndarray, RH: float, dry_size: float, nps_typ
 
     return C1_humidified
 
-def run_dispersion_model(config: ModelConfig):
+from typing import Optional, Tuple
+
+def run_dispersion_model(config: ModelConfig, bounds: Optional[Tuple] = None):
 
     #Spatial grid setup
-    dxy = 5000 / 499 #grid size in meters
+    """dxy = 5000 / 499 #grid size in meters
     dz = 10
-    x = np.mgrid[-2500:2500 + dxy:dxy] #-2500 to 2500 with step dxy (meter)
-    y = x.copy()
+    x = np.mgrid[-2500:2500 + dxy:dxy] #-2500 to 2500 with step dxy (meter)"""
+    if bounds is None:
+        L = 4999
+        dxy = 10
+        N = int(L / dxy) + 1
+        x = np.linspace(-L/2, L/2, N)
+        y = x.copy()
+    else:
+        x_min, y_min, x_max, y_max = bounds
+        grid_size = config.grid_size
+        x = np.linspace(x_min, x_max, grid_size)
+        y = np.linspace(y_min, y_max, grid_size)
+    
+        dx = (x_max - x_min) / (grid_size - 1)
+        dy = (y_max - y_min) / (grid_size - 1)
+        dxy = (dx + dy) / 2  
+
+    # Calcolo dz 
+    dz = x[1] - x[0]
+    z_max = 100  # altezza massima da considerare 
+    z = np.arange(0, z_max + dz, dz)
+
     times = np.arange(1, config.days * 24 + 1) / 24.0
 
     # Stability setup

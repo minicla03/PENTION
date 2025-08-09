@@ -70,5 +70,6 @@ class ModelConfig:
     dry_size: float = 60e-9
     x_slice: int = 26
     y_slice: int = 1
+    grid_size: int= 500
     dispersion_model: DispersionModelType = DispersionModelType.PLUME
     config_puff: 'Optional[ConfigPuff]' = field(default_factory=ConfigPuff) if dispersion_model == DispersionModelType.PUFF else None

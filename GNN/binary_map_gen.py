@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm  
 import os
 import pandas as pd
+import json
 import geopandas as gpd
 
 # Logging
@@ -63,7 +64,7 @@ def generate_binary_map(
 
         # Scarica edifici da OSM
         tags = {"building": True, "height": True}
-        buildings = ox.features_from_place(place, tags=tags) if not bbox else \
+        buildings = ox.features_from_place(place, tags=tags) if not bbox else \  #type: ignore
                     ox.features_from_bbox(bbox, tags=tags) #type: ignore
         
         if buildings.empty:
@@ -141,26 +142,41 @@ def generate_binary_map(
     
     return binary_grid, metadata
 
+def convert_np(obj):
+    if isinstance(obj, (np.integer, np.int32, np.int64)): #type: ignore
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float32, np.float64)):  #type: ignore
+        return float(obj)
+    elif isinstance(obj, (np.ndarray, list, tuple)):
+        return [convert_np(i) for i in obj]
+    elif isinstance(obj, dict):
+        return {k: convert_np(v) for k, v in obj.items()}
+    else:
+        return obj
+
 if __name__ == "__main__":
 
     target_city = "Roma, Italy"
     
-    #binary_map, metadata = generate_binary_map_city(city=target_city, grid_size=300)
     # Formato: (min_lon, min_lat, max_lon, max_lat) in EPSG:4326
     #41.128370,14.774086,41.133989,14.791138->(lat_min, lon_min, lat_max, lon_max).
     quartiere_bbox = (12.478107, 41.894985,12.495397, 41.903454) # lat/lon: N, S, E, W  https://bboxfinder.com/
     binary_map, metadata= generate_binary_map(place=target_city,bbox=quartiere_bbox, grid_size=500)
+    # Converte tutto e salva come JSON
+    metadata_clean = convert_np(metadata)
     print(metadata)
 
     if binary_map is not None and binary_map.size > 0:
 
         output_filename = os.path.join(".", "GNN/binary_maps_data", f"{target_city.lower().replace(', ', '_').replace(' ', '_')}{'_bbox' if quartiere_bbox is not None else ''}.npy")
-        metadata_filename = os.path.join(".", "GNN/binary_maps_data", f"{target_city.lower().replace(', ', '_').replace(' ', '_')}_metadata{'_bbox' if quartiere_bbox is not None else ''}.npy")
+        metadata_filename = os.path.join(".", "GNN/binary_maps_data", f"{target_city.lower().replace(', ', '_').replace(' ', '_')}_metadata{'_bbox' if quartiere_bbox is not None else ''}.json")
     
 
         os.makedirs(os.path.dirname(output_filename), exist_ok=True)
         np.save(output_filename, binary_map)
-        np.save(metadata_filename, metadata) # type: ignore
+        with open(metadata_filename, "w") as file:
+            # Scrivi il dizionario nel file JSON
+            json.dump(metadata, file, indent=4)
 
         logging.info(f"Binary map saved to '{output_filename}'. Shape: {binary_map.shape}")
         
