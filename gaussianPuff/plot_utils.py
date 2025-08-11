@@ -10,11 +10,6 @@ import scipy
 from matplotlib.patches import Circle
 from windrose import WindroseAxes
 
-import numpy as np
-import matplotlib.pyplot as plt
-from windrose import WindroseAxes
-from matplotlib.patches import Circle
-
 def plot_plan_view(C1, x, y, title, wind_dir=None, wind_speed=None, puff_list=None, stability_class=1, n_show=10):
     fig, ax_main = plt.subplots(figsize=(8, 6))
 

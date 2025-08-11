@@ -6,8 +6,8 @@ from Sensor import Sensor
 import numpy as np
 import json
 
-BINARY_MAP_PATH = os.path.join("GNN/binary_maps_data/roma_italy_bbox.npy")
-BINARY_MAP_PATH_METADATA= os.path.join("GNN/binary_maps_data/roma_italy_metadata_bbox.json")
+BINARY_MAP_PATH = os.path.join("CorrectionDispersion/binary_maps_data/roma_italy_bbox.npy")
+BINARY_MAP_PATH_METADATA= os.path.join("CorrectionDispersion/binary_maps_data/roma_italy_metadata_bbox.json")
 N_SENSORS = 5
 
 with open(BINARY_MAP_PATH_METADATA, 'r') as file:
