@@ -60,7 +60,7 @@ def _compute_features(spectrum):
     ]
 
 def pipe_clf_dnn(spectra):
-    dnn_clf= joblib.load('dnn_model_v1.h5')
+    dnn_clf= joblib.load('model/dnn_spectra_version.keras')
     predictions = []
     for spectrum in spectra:
         prediction = dnn_clf.predict(spectrum)
@@ -68,7 +68,7 @@ def pipe_clf_dnn(spectra):
     return np.array(predictions)
 
 def pipe_clf_brf(spectra):
-    brf_clf = joblib.load('balanced_random_forest_model_v1.pkl')
+    brf_clf = joblib.load('model/balanced_random_forest_brf.pkl')
     predictions = []
     for spectrum in spectra:
         features = np.array(_compute_features(spectrum))

@@ -33,7 +33,7 @@ if __name__ == "__main__":
     sensors = []
     for i in range(N_SENSORS):
         x, y=random_position()
-        sensor = Sensor(i, x=x ,y=y, z=2.0, noise_level=round(np.random.uniform(0.0, 0.0005), 4))
+        sensor = Sensor(i, x=x ,y=y, z=2.0, noise_level=round(np.random.uniform(0.0, 0.0005), 4), is_fault=np.random.choice([True, False]))
         sensors.append(sensor)
 
     x_slice=26
@@ -71,9 +71,9 @@ if __name__ == "__main__":
     plot_utils.plot_surface_time(C1, times, x_slice, y_slice, stability, stab_label, f"Surface Time - {stab_label} - {wind_label}")
     plot_utils.plot_height_slice(C1, y, z, stab_label, wind_label)
 
-    """for sensor in sensors:
-        sensor.sample(C1, x, y, times)
-        sensor.plot_timeseries(use_noisy=True)"""
+    for sensor in sensors:
+        sensor.sample_substance(C1, x, y, times)
+        sensor.plot_timeseries(use_noisy=True)
     
     sensor_data = [(sensor.x, sensor.y) for sensor in sensors]
 

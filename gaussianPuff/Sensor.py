@@ -4,7 +4,7 @@ import os
 import sys
 import random
 from scipy.interpolate import RegularGridInterpolator
-from gaussianPuff.config import PasquillGiffordStability, WindType, StabilityType
+from config import WindType, StabilityType, NPS, PasquillGiffordStability
 
 class Sensor:
     def __init__(self, sensor_id, x: float, y: float, z: float = 2.,

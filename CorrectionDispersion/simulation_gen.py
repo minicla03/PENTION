@@ -8,13 +8,12 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'g
 from config import ModelConfig, StabilityType, WindType, OutputType, NPS, PasquillGiffordStability, DispersionModelType, ConfigPuff
 from gaussianModel import run_dispersion_model
 from Sensor import Sensor
-from scipy.interpolate import RegularGridInterpolator
 
 # Parametri generali
 N_SIMULATIONS = 100
 N_SENSORS = 10
-SAVE_DIR = "./GNN/dataset"
-SAVE_DIR_CONC_REAL= "./GNN/dataset/real_dispersion"
+SAVE_DIR = "./CorrectionDispersion/dataset"
+SAVE_DIR_CONC_REAL= "./CorrectionDispersion/dataset/real_dispersion"
 BINARY_MAP_PATH = os.path.join(os.path.dirname(__file__), "binary_maps_data/roma_italy_bbox.npy")
 
 os.makedirs(SAVE_DIR, exist_ok=True)
@@ -62,15 +61,39 @@ def sample_meteorology():
 
     return wind_speed, wind_type, stability_type, stability_value
 
-def add_noise(concentrations, noise_level):
+"""def add_noise(concentrations, noise_level):
     concentrations = np.array(concentrations)
     noise_std = noise_level * np.maximum(concentrations, 1e-6)
     noise = np.random.normal(0, noise_std)
     noisy_conc = concentrations + noise
     noisy_conc = np.clip(noisy_conc, 0, None)
-    return noisy_conc.tolist()
+    return noisy_conc.tolist()"""
+
+def fault_probability(wind_speed, stability_value, RH, wind_type):
+    # Base probability
+    base_prob = 0.1
+    
+    # Aumenta probabilità con vento forte
+    if wind_speed > 6.0:
+        base_prob += 0.2
+    
+    # Aumenta probabilità se stabilità molto instabile o molto stabile
+    if stability_value in [PasquillGiffordStability.VERY_UNSTABLE, PasquillGiffordStability.VERY_STABLE]:
+        base_prob += 0.15
+        
+    # Aumenta probabilità con alta umidità
+    if RH > 0.8:
+        base_prob += 0.2
+        
+    # Vento fluttuante aumenta la probabilità
+    if wind_type == WindType.FLUCTUATING:
+        base_prob += 0.1
+        
+    # Limita la probabilità al massimo di 0.75 per evitare valori troppo estremi
+    return min(base_prob, 0.75)
 
 data_records = []
+tsf_records = []
 
 for i in range(N_SIMULATIONS):
     print(f"Simulazione {i+1}/{N_SIMULATIONS}")
@@ -81,15 +104,26 @@ for i in range(N_SIMULATIONS):
     Q = round(np.random.uniform(0.0001, 0.01), 4)  # tasso di emissione 
     stacks = [(x_src, y_src, Q, h_src)]
 
+    # Meteo
+    wind_speed, wind_type, stab_type, stab_value = sample_meteorology()
+
     # Sensori
     sensors = []
     for j in range(N_SENSORS):
         x, y=random_position()
-        sensor = Sensor(j, x=x ,y=y, z=2.0, noise_level=round(np.random.uniform(0.0, 0.0005), 4), is_fault=random.choice([True, False]))
-        sensors.append(sensor)
 
-    # Meteo
-    wind_speed, wind_type, stab_type, stab_value = sample_meteorology()
+        fault_prob = fault_probability(wind_speed, stab_value, 0.5, wind_type) 
+        is_fault = random.random() < fault_prob
+
+        sensor = Sensor(
+            j,
+            x=x,
+            y=y,
+            z=2.0,
+            noise_level=round(np.random.uniform(0.0, 0.0005), 4),
+            is_fault=is_fault
+        )
+        sensors.append(sensor)
 
     # nps considerato casuale
     aerosol_type = random.choice(list(NPS))
@@ -124,7 +158,7 @@ for i in range(N_SIMULATIONS):
     # Salva record per ogni sensore e ogni simulazione
     for sensor in sensors:
 
-        sensor.sample(C1,x,y,times) 
+        sensor.sample_substance(C1,x,y,times) 
 
         row = {
             "simulation_id": i,
@@ -149,13 +183,35 @@ for i in range(N_SIMULATIONS):
             "source_h": h_src,
             "emission_rate": Q,
             "real_concentration": filename,
-            "contratio_series": ",".join(map(str, sensor.noisy_concentrations))
+            #"contratio_series": ",".join(map(str, sensor.noisy_concentrations))
         }
         data_records.append(row)
+
+        # Usa l'indice posizionale perché t_idx può essere un timestamp o valore non intero
+        for idx, (t_idx, conc) in enumerate(zip(sensor.times, sensor.noisy_concentrations)):
+            
+            if idx >= len(wind_dir):
+                break  
+            wd = wind_dir[idx]
+
+            tsf_records.append({
+                "simulation_id": i,
+                "sensor_id": sensor.id,
+                "time": t_idx,                     
+                "conc": conc,
+                "wind_dir_x": np.cos(np.deg2rad(wd)),
+                "wind_dir_y": np.sin(np.deg2rad(wd)), 
+                "wind_speed": wind_speed,
+                "wind_type": wind_type.value,
+            })
 
 # Salvataggio CSV
 df = pd.DataFrame(data_records)
 csv_path = os.path.join(SAVE_DIR, f"nps_simulated_dataset_gaussiano_{datetime.datetime.now().date()}.csv")
 df.to_csv(csv_path, index=False)
 
-print(f"\nDataset generato e salvato in {csv_path}")
+df_tsf = pd.DataFrame(tsf_records)
+tsf_csv_path = os.path.join(SAVE_DIR, f"nps_simulated_dataset_tsfresh_{datetime.datetime.now().date()}.csv")
+df_tsf.to_csv(tsf_csv_path, index=False)
+
+print(f"\nDataset generato e salvato in {csv_path} e {tsf_csv_path}")
