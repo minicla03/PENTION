@@ -8,109 +8,115 @@ import matplotlib.patches as mpatches
 from tqdm import tqdm
 import networkx as nx
 
-def create_graph(datset_copy, binary_map, n_sensor=10, t_idx=300, sensor=False):
+def create_graph(datset_copy, binary_map, metadata, n_sensor=10, sensor=False):
     graph_list=[]
     if sensor:
         for idx in tqdm(range(0, len(datset_copy), n_sensor), desc="Creating graphs from sensors"):
-            graph = create_graph_from_sensors(datset_copy.iloc[idx:idx+n_sensor], binary_map, n_sensor)
+            graph = create_graph_from_sensors(datset_copy.iloc[idx:idx+n_sensor], binary_map, n_sensor, metadata)
             graph_list.append(graph)
     else:
         for idx, row in tqdm(datset_copy.iterrows(), total=len(datset_copy), desc="Creating graphs from simulations"):
-            graph=create_graph_from_simulation(row, binary_map, t_idx)
+            graph=create_graph_from_simulation(row, binary_map, 0)
             graph_list.append(graph)
     return graph_list
 
-def create_graph_from_sensors(rows, binary_map, t_idx=300, n_sensor=10):
+import torch
+import numpy as np
+from torch_geometric.data import Data
+
+def create_graph_from_sensors(rows, binary_map, m=50, metadata: dict = None): # type: ignore
     """
-    rows: DataFrame con N righe corrispondenti a una simulazione
-    """
-    assert len(rows) == 10, "Ogni grafo deve essere costruito da N righe (N sensori)"
+    Crea un grafo a partire da sensori e sorgente per la GNN.
     
+    rows: DataFrame con N righe dei sensori e info sorgente
+    binary_map: mappa binaria città (H x W), edifici=0, spazi liberi=1
+    m: dimensione della griglia finale
+    """
     H, W = binary_map.shape
-    num_nodes = len(rows)
-
-    nodes   = []
+    num_sensors = len(rows)
+    
     node_features = []
-    sensor_concentrations = []
     pos_list = []
-    conc_targets = []
+    sensor_targets = []
 
-    #print(f"Creating graph with {num_nodes} nodes from {len(rows)} sensors")
+    building_density = metadata.get('building_density', 0) / 100.0  
+    mean_height = metadata.get('mean_height', 0) / 10.0             
+    cell_size_x, cell_size_y = metadata.get('cell_size', [1.0,1.0])
 
-    #nodo della sorgente
-    row_data = rows.iloc[0]
+
+    # --- Nodo sorgente ---
+    source_row = rows.iloc[0]
     source_features = [
-        row_data['source_x'], row_data['source_y'], row_data['source_h'], row_data['emission_rate'], 
-        row_data['wind_speed'],  row_data['wind_dir_cos'], row_data['wind_dir_sin'], row_data['wind_type'],
-        row_data['RH'],
-        row_data['stability_value'], 
-       row_data['aerosol_type'],
+        source_row['source_x']/W,
+        source_row['source_y']/H,
+        source_row['source_h'],
+        source_row['emission_rate'],
+        source_row['wind_speed'],
+        source_row['wind_dir_cos'],
+        source_row['wind_dir_sin'],
+        source_row['RH'],
+        source_row['stability_value'],
+        source_row['aerosol_type'],
         1.0, # source indicator
         0.0,  # filler per sensor_noise
+        building_density,
+        mean_height
     ]
-
-    nodes.append(('source', row_data['source_x'], row_data['source_y']))
     node_features.append(source_features)
-    pos_list.append((row_data['source_x'], row_data['source_y']))
+    pos_list.append((source_row['source_x'], source_row['source_y']))
+    sensor_targets.append(0.0)
 
+    # --- Nodi sensori ---
     for _, sensor_row in rows.iterrows():
-        sensor_features = [
-                sensor_row['sensor_x'], sensor_row['sensor_y'], sensor_row['sensor_noise'],
-                row_data['wind_speed'], row_data['RH'], row_data['wind_dir_cos'], row_data['wind_dir_sin'],
-                row_data['wind_dir_sin'], row_data['stability_value'],
-                row_data['aerosol_type'], 
-                0.0, # sensor indicator
-                0.0, # filler per emission_rate
-                0.0 # filler per source_h
-            ]
-        nodes.append(('sensor', sensor_row['sensor_x'], sensor_row['sensor_y']))
-        node_features.append(sensor_features)
+        features = [
+            sensor_row['sensor_x']/W,
+            sensor_row['sensor_y']/H,
+            sensor_row['sensor_noise'],
+            source_row['wind_speed'],
+            source_row['wind_dir_cos'],
+            source_row['wind_dir_sin'],
+            source_row['RH'],
+            source_row['stability_value'],
+            source_row['aerosol_type'],
+            0.0, # sensor indicator
+            0.0, # filler per emission_rate
+            0.0, # filler per source_h
+            building_density,
+            mean_height
+        ]
+        node_features.append(features)
         pos_list.append((sensor_row['sensor_x'], sensor_row['sensor_y']))
+        sensor_targets.append(np.mean(sensor_row['contratio_series']))
 
-        # Parse concentration time series - adattato al tuo formato
-        """def convert_string_to_array(s):
-            if isinstance(s, str):
-                s = s.replace('[', '').replace(']', '')
-                return np.fromstring(s, sep=',')
-            return s
-        conc_series = sensor_row["contratio_series"].apply(convert_string_to_array)"""
-        # Prendi la concentrazione media come target semplificato
-        avg_concentration = np.mean(sensor_row['contratio_series'])
-        sensor_concentrations.append(avg_concentration)
-       
-    # Crea edge_index e edge_features
+    # --- Creazione edges fully connected ---
     edge_index = []
-    edge_features = []
-    
-    num_nodes = len(nodes)
+    edge_attr = []
+    num_nodes = len(node_features)
     for i in range(num_nodes):
         for j in range(i+1, num_nodes):
+            x1, y1 = pos_list[i]
+            x2, y2 = pos_list[j]
+            distance = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
             
-            # Calcola distanza
-            x1, y1 = nodes[i][1], nodes[i][2]
-            x2, y2 = nodes[j][1], nodes[j][2]
-            distance = np.sqrt((x2-x1)**2 + (y2-y1)**2)
+            building_obstruction = calculate_building_obstruction(binary_map, x1, y1, x2, y2)
+            wind_influence = abs(np.cos(np.arctan2(y2 - y1, x2 - x1)))
             
-            # Calcola ostruzione da edifici
-            building_obstruction = calculate_building_obstruction(binary_map, H, x1, y1, x2, y2)
-            
-            # Features addizionali per gli edge
-            wind_direction_influence = abs(np.cos(np.arctan2(y2-y1, x2-x1)))
-            
-            # Aggiungi edge bidirezionale
             edge_index.extend([[i, j], [j, i]])
-            edge_attr = [distance, building_obstruction, wind_direction_influence]
-            edge_features.extend([edge_attr, edge_attr])
-        
-    # Conversione in tensori    
+            edge_attr.extend([[distance, building_obstruction, wind_influence],
+                              [distance, building_obstruction, wind_influence]])
+
+    # --- Conversione in tensori ---
     x = torch.FloatTensor(node_features)
     edge_index = torch.LongTensor(edge_index).t().contiguous()
-    edge_attr = torch.FloatTensor(edge_features)
-    y = torch.FloatTensor([np.mean(sensor_concentrations)]) 
-    
-    data =  Data(x=x, edge_index=edge_index, edge_attr=edge_attr, y=y)
-    
-    data.mask = torch.tensor([binary_map[int(y), int(x)] for x, y in pos_list], dtype=torch.float32)
+    edge_attr = torch.FloatTensor(edge_attr)
+    y = torch.FloatTensor(sensor_targets).view(-1, 1)  # target per nodo
+
+    # --- Maschera città ---
+    mask = torch.tensor([binary_map[int(y* H), int(x* W)] for x, y in pos_list], dtype=torch.float32)
+
+    data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr, y=y)
+    data.mask = mask
+
     return data
 
 def create_graph_from_simulation(row, binary_map, conc_array, t_idx=300):
@@ -152,23 +158,23 @@ def create_graph_from_simulation(row, binary_map, conc_array, t_idx=300):
     data.mask = torch.tensor(is_free, dtype=torch.float32)  
     return data
 
-def calculate_building_obstruction(binary_map, grid_size, x1, y1, x2, y2):
+def calculate_building_obstruction(binary_map, x1, y1, x2, y2):
     """
     Calcola la percentuale di edifici lungo la linea tra due punti
     """
-    # Discretizza la linea tra i due punti
+    H, W = binary_map.shape
     num_points = max(int(np.sqrt((x2-x1)**2 + (y2-y1)**2)), 10)
-    x_line = np.linspace(x1, y1, num_points)
-    y_line = np.linspace(x2, y2, num_points)
+    x_line = np.linspace(x1, x2, num_points)
+    y_line = np.linspace(y1, y2, num_points)
     
-    # Conta gli edifici lungo la linea
     building_count = 0
     for x, y in zip(x_line, y_line):
-        if 0 <= int(x) < grid_size and 0 <= int(y) < grid_size:
-            if binary_map[int(y), int(x)] == 0:  # 0 = edificio
+        xi, yi = int(x), int(y)
+        if 0 <= xi < W and 0 <= yi < H:
+            if binary_map[yi, xi] == 0:  # 0 = edificio
                 building_count += 1
     
-    return building_count / num_points if num_points > 0 else 0
+    return building_count / num_points
 
 def plot_graph(data, binary_map=None, title="Grafo con dettagli"):
     G = nx.DiGraph()
@@ -202,7 +208,7 @@ def plot_graph(data, binary_map=None, title="Grafo con dettagli"):
     plt.figure(figsize=(10,10))
 
     if binary_map is not None:
-        plt.imshow(binary_map, cmap='gray_r', origin='lower')
+        plt.imshow(binary_map, cmap='gray', origin='lower')
 
     for shape in set(node_shapes.values()):
         nodes_of_shape = [n for n in G.nodes if node_shapes[is_source[n]] == shape]

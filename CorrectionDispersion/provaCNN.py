@@ -1,16 +1,20 @@
-from MCxM import MCxM_CNN, EarlyStopping
+from MCxM import MCxM_CNN, EarlyStopping, MCxM_CNN_Hybrid
 #from pytorch_lightning.callbacks import EarlyStopping
 import torch
 import os
 import numpy as np
 import sys
+import pandas as pd
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+from matplotlib.patches import Circle
+from windrose import WindroseAxes
+import json
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'gaussianPuff')))
 from torch_geometric.data import Dataset
 from torch_geometric.loader import DataLoader
 from torch.utils.data import random_split
-import pandas as pd
-from plot_utils import plot_plan_view
-from tqdm import tqdm
 
 def masked_loss(output, target, mask, lambda_penalty=10.0):
 
@@ -31,22 +35,30 @@ def masked_loss(output, target, mask, lambda_penalty=10.0):
     return total_loss
 
 class CNNDataset(Dataset):
-    def __init__(self, concentration_maps, wind_dir, wind_speed, m=500, path_saved="./CorrectionDispersion/CNNdataset"):
+    def __init__(self, concentration_maps, building_maps, wind_dir, wind_speed, global_features, m=500, path_saved="./CorrectionDispersion/CNNdataset"):
         super().__init__(root=path_saved)
         self.concentration_maps = concentration_maps  # lista o array di (m, m)
+        self.building_maps = building_maps       # [m, m]
         self.wind_dir = wind_dir                      # lista o array di scalari
         self.wind_speed = wind_speed
+        self.global_features = global_features   # [B, n_global_features]
         self.m = m
 
     def __len__(self):
         return len(self.concentration_maps)
 
     def __getitem__(self, idx):
-        mc = torch.tensor(self.concentration_maps[idx], dtype=torch.float32).view(self.m, self.m)
+        #mc = torch.tensor(self.concentration_maps[idx], dtype=torch.float32).view(self.m, self.m)
+        local_maps = torch.stack([
+            torch.tensor(self.concentration_maps[idx], dtype=torch.float32),
+            torch.tensor(self.building_maps, dtype=torch.float32)
+        ])  # [2, m, m]
+
         wind_speed = torch.tensor([self.wind_speed[idx]], dtype=torch.float32)  # shape (1,)
         wind_dir   = torch.tensor([self.wind_dir[idx]], dtype=torch.float32)    # shape (1,)
-        return mc, wind_speed, wind_dir
+        global_features = torch.tensor(self.global_features[idx], dtype=torch.float32)
 
+        return local_maps, wind_speed, wind_dir, global_features
 
 def r2_score(y_true, y_pred, eps=1e-10):
         ss_res = torch.sum((y_true - y_pred) ** 2)
@@ -54,51 +66,61 @@ def r2_score(y_true, y_pred, eps=1e-10):
         print(f"ss_res: {ss_res.item()}, ss_tot: {ss_tot.item()}")
         return 1 - ss_res / ss_tot
 
-def validate(model, val_loader, loss_fn, mae_fn, device):
+def validate(model, val_loader, loss_fn, mae_fn, binary_mask, device, lambda_penalty=10.0):
     model.eval()
     total_loss = 0
     total_mae = 0
-    total_r2 = 0
+    #total_r2 = 0
     n_batches = 0
 
+    if not isinstance(binary_mask, torch.Tensor):
+        mask = torch.tensor(binary_mask, dtype=torch.float32, device=device)
+    else:
+        mask = binary_mask.to(device)
+
     with torch.no_grad():
-        for mc, wind_speed, wind_dir in val_loader:
+        for mc, wind_speed, wind_dir, global_features in val_loader:
             mc = mc.to(device)
             wind_speed = wind_speed.to(device)
             wind_dir = wind_dir.to(device)
+            global_features = global_features.to(device)
 
-            output = model(mc, wind_speed, wind_dir)
-            loss = loss_fn(output, mc)
-            mae = mae_fn(output, mc)
+            output = model(mc, wind_speed, wind_dir, global_features)
+            #loss = loss_fn(output, mc)
+            #mae = mae_fn(output, mc)
             
-            mc_orig = denormalize_tensor(mc, vmin, vmax)
-            output_orig = denormalize_tensor(output, vmin, vmax)
+            #mc_orig = denormalize_tensor(mc, vmin, vmax)
+            #output_orig = denormalize_tensor(output, vmin, vmax)
 
-            r2 = r2_score(mc_orig, output_orig)
+            #r2 = r2_score(mc_orig, output_orig)
+
+            # Loss mascherata e MAE sulle zone libere
+            mse_loss = torch.mean(((output - mc[:,0]) ** 2) * mask)
+            building_penalty = torch.mean((output * (1 - mask)) ** 2)
+            loss = mse_loss + lambda_penalty * building_penalty
+
+            mae = torch.mean(torch.abs((output - mc[:,0]) * mask))
 
             total_loss += loss.item()
             total_mae += mae.item()
-            total_r2 += r2.item()
+            #total_r2 += r2.item()
             n_batches += 1
+
+    #avg_loss = total_loss / n_batches
+    #avg_mae = total_mae / n_batches
+    #avg_r2 = total_r2 / n_batches
 
     avg_loss = total_loss / n_batches
     avg_mae = total_mae / n_batches
-    avg_r2 = total_r2 / n_batches
 
-    print(f"Validation - Loss: {avg_loss:.6f}, MAE: {avg_mae:.6f}, R2: {avg_r2:.6f}")
-    return avg_loss, avg_mae, avg_r2
+    print(f"[Validation Masked] Loss: {avg_loss:.6f}, MAE (zones libere): {avg_mae:.6f}")
+    return avg_loss, avg_mae
 
 def convert_string_to_array(s):
     if isinstance(s, str):
         s = s.replace('[', '').replace(']', '')
         return np.fromstring(s, sep=',')
     return s
-
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.patches import Circle
-from windrose import WindroseAxes
-
 
 def plot_plan_view(C1, x, y, title, wind_dir=None, wind_speed=None, puff_list=None, stability_class=1, n_show=10):
     fig, ax_main = plt.subplots(figsize=(8, 6))
@@ -163,18 +185,23 @@ def normalize_tensor(tensor, vmin, vmax):
 def denormalize_tensor(tensor, vmin, vmax):
     return tensor * (vmax - vmin) + vmin
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+BINARY_MAP_PATH = os.path.join(os.path.dirname(__file__), "binary_maps_data/roma_italy_bbox.npy")
+METADATA_MAP_PATH = os.path.join(SCRIPT_DIR, "binary_maps_data", "roma_italy_metadata_bbox.json")
+REAL_CONC_PATH = os.path.join(SCRIPT_DIR, "dataset", "real_dispersion")
+CSV_PATH = os.path.join(SCRIPT_DIR, "dataset", "nps_simulated_dataset_gaussiano_2025-08-08_processed.csv")
+
 if __name__ == "__main__":
     
-    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-    BINARY_MAP_PATH = os.path.join(os.path.dirname(__file__), "binary_maps_data/roma_italy_bbox.npy")
-    REAL_CONC_PATH = os.path.join(SCRIPT_DIR, "dataset", "real_dispersion")
-    CSV_PATH = os.path.join(SCRIPT_DIR, "dataset", "nps_simulated_dataset_gaussiano_2025-08-08_processed.csv")
-
     binary_map = np.load(BINARY_MAP_PATH)
+    print(binary_map.shape)
     csv_df = pd.read_csv(CSV_PATH)
     csv_df_reduced = csv_df.groupby('simulation_id').first().reset_index()
     csv_df_reduced = csv_df_reduced[['wind_dir', 'wind_speed']]
     m = 500
+
+    with open(os.path.join(METADATA_MAP_PATH), 'r') as f:
+        metadata = json.load(f)
 
     csv_df_reduced['wind_dir'] = csv_df_reduced['wind_dir'].apply(convert_string_to_array) #type:ignore
 
@@ -205,20 +232,29 @@ if __name__ == "__main__":
         wind_speeds.append(wind_speed_mean)
     dati = list(zip(concentration_maps, wind_dirs, wind_speeds))
     
-    """print("[INFO] Plot concentration maps and wind parameters.")
-    binary_map= binary_map[:,:, np.newaxis]
-    plot_plan_view((dati[0][0])*binary_map, np.arange(m), np.arange(m), "Example Concentration Map", 
-                   wind_dir=(dati[0][1]).astype(float), wind_speed=(dati[0][2]).astype(float), puff_list=None, stability_class=1)
-    """
+    print("[INFO] Plot concentration maps and wind parameters.")
+    #binary_map= binary_map[:,:, np.newaxis]
+    plot_plan_view(((dati[0][0])*binary_map), np.arange(m), np.arange(m), "Example Concentration Map")
 
     all_values = np.concatenate([cm.flatten() for cm in concentration_maps])
     vmin, vmax = np.min(all_values), np.max(all_values)
     print(f"Global min: {vmin}, max: {vmax}")
 
     concentration_maps = [(cm - vmin) / (vmax - vmin) for cm in concentration_maps]
-        
+    print(concentration_maps[0].shape)
+    
+    city_features = np.array([
+        metadata.get('building_density', 0.0),
+        metadata.get('mean_height', 0.0),
+        metadata.get('total_buildings', 0.0),
+        metadata.get('free_cells', 0.0),
+        metadata.get('total_cells', 0.0),
+        metadata.get('building_density', 0.0),
+    ], dtype=np.float32)
+    global_features = np.tile(city_features, (len(concentration_maps), 1))  # shape: [num_samples, 3]
+
     print("[INFO] Initializing CNNDataset.")
-    dataset = CNNDataset(concentration_maps, wind_dirs, wind_speeds, m=m)
+    dataset = CNNDataset(concentration_maps, binary_map, wind_dirs, wind_speeds, global_features, m=m)
 
     dataset_size = len(dataset)
     val_size = int(0.2 * dataset_size)
@@ -226,20 +262,22 @@ if __name__ == "__main__":
 
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True) #datafusion
+    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True) #datafusion???
     val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False) 
 
-    print("Statistiche sul dataset:")
+    """print("Statistiche sul dataset:")
     for i in range(3):
         mc_sample, ws, wd = dataset[i]
         print(f"Sample {i} - mc min: {mc_sample.min().item()}, max: {mc_sample.max().item()}, mean: {mc_sample.mean().item()}")
-
-
+    """
+    
     device = torch.device('mps' if torch.backends.mps.is_available() else ('cuda' if torch.cuda.is_available() else 'cpu'))
     print(f"[INFO] Using device: {device}")
 
+    # Initialize the model
     epochs=10
-    model = MCxM_CNN(binary_map, m=m).to(device)
+    model = MCxM_CNN_Hybrid(binary_map, m=m).to(device)
+
     loss_fn = torch.nn.MSELoss()
     optimizer = torch.optim.RMSprop(model.parameters(), lr=0.001)
     decay_rate = 0.95
@@ -259,22 +297,25 @@ if __name__ == "__main__":
         plt.grid(True)
         plt.show()
 
+    # Main training loop
+    print("[INFO] Starting training loop.")
     for epoch in tqdm(range(epochs), desc="Training epochs"):
         model.train()
         running_loss = 0.0
-        for batch_idx, (mc, wind_speed, wind_dir) in enumerate(train_loader):
+        for batch_idx, (mc, wind_speed, wind_dir, global_features) in enumerate(train_loader):
             mc = mc.to(device)
             wind_speed = wind_speed.to(device)
             wind_dir = wind_dir.to(device)
+            global_features = global_features.to(device)
 
             optimizer.zero_grad()
-            output = model(mc, wind_speed, wind_dir)
+            output = model(mc, wind_speed, wind_dir, global_features)
 
             print(f"[DEBUG Training] Epoch {epoch+1}, Batch {batch_idx+1}")
             print(f"  Input mc shape: {mc.shape}")
             print(f"  Output shape: {output.shape}")
 
-            loss = masked_loss(output, mc, binary_map)
+            loss = masked_loss(output, mc[:,0], binary_map)
             #plot_plan_view(output, np.arange(m), np.arange(m), "output")
             print(f"  Loss: {loss.item():.6f}")
             loss.backward()
@@ -286,7 +327,8 @@ if __name__ == "__main__":
         train_losses.append(avg_train_loss)
         print(f"[INFO] Epoch {epoch+1} average training loss: {avg_train_loss:.6f}")
 
-        val_loss, val_mae, val_r2  = validate(model, val_loader, loss_fn, torch.nn.L1Loss(), device)  
+        #val_loss, val_mae, val_r2  = validate(model, val_loader, loss_fn, torch.nn.L1Loss(), device)  
+        val_loss, val_mae = validate(model, val_loader, loss_fn, torch.nn.L1Loss(), binary_map, device)
 
         val_losses.append(val_loss)
 
@@ -296,5 +338,10 @@ if __name__ == "__main__":
             model.load_state_dict(early_stopper.best_model_state)
             break 
 
+    print("[INFO] Training complete.")
+
+    # Plot output for a sample
+    sample_map = output[0].detach().cpu().numpy()  # shape: (m, m)
+    plot_plan_view(sample_map, np.arange(m), np.arange(m), "Sample Output Map")
     plot_losses()
     

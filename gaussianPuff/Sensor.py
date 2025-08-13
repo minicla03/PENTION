@@ -135,6 +135,16 @@ class Sensor:
         plt.show()
         
     def run_sensor(self):
+        '''
+        Esegue il campionamento del sensore.
+        Campiona meteorologia, sostanza e simula lo spettro di massa.
+        Se il sensore è in stato di guasto, non campiona dati.
+        
+        Returns:
+            dict: Dati campionati dal sensore, inclusi tempi, spettro di massa,
+                velocità del vento, tipo di vento, tipo di stabilità, valore di stabilità,
+                umidità, dimensione secca e umidità relativa (RH).
+        '''
         if self.is_fault is True:
             print(f"Sensor {self.id} is faulty. No data sampled.")
             self.concentrations = np.array([], dtype=float)
