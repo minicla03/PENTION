@@ -64,8 +64,7 @@ def generate_binary_map(
 
         # Scarica edifici da OSM
         tags = {"building": True, "height": True}
-        buildings = ox.features_from_place(place, tags=tags) if not bbox else \  #type: ignore
-                    ox.features_from_bbox(bbox, tags=tags) #type: ignore
+        buildings = ox.features_from_place(place, tags=tags) if not bbox else ox.features_from_bbox(bbox, tags=tags) #type: ignore
         
         if buildings.empty:
             logging.warning(f"No building data found for {place}. Returning an empty map.")
@@ -163,7 +162,7 @@ if __name__ == "__main__":
     quartiere_bbox = (12.478107, 41.894985,12.495397, 41.903454) # lat/lon: N, S, E, W  https://bboxfinder.com/
     binary_map, metadata= generate_binary_map(place=target_city,bbox=quartiere_bbox, grid_size=500)
     # Converte tutto e salva come JSON
-    metadata_clean = convert_np(metadata)
+    #metadata_clean = convert_np(metadata)
     print(metadata)
 
     if binary_map is not None and binary_map.size > 0:
@@ -174,9 +173,9 @@ if __name__ == "__main__":
 
         os.makedirs(os.path.dirname(output_filename), exist_ok=True)
         np.save(output_filename, binary_map)
-        with open(metadata_filename, "w") as file:
+        #with open(metadata_filename, "w") as file:
             # Scrivi il dizionario nel file JSON
-            json.dump(metadata, file, indent=4)
+           # json.dump(metadata, file, indent=4)
 
         logging.info(f"Binary map saved to '{output_filename}'. Shape: {binary_map.shape}")
         
@@ -186,7 +185,7 @@ if __name__ == "__main__":
         building_cells = np.sum(binary_map == 0)
         free_cells = np.sum(binary_map == 1)
 
-        info_text = f"""
+        '''info_text = f"""
             Informazioni Mappa:
             • Griglia: {metadata.get('grid_size', 'N/A')}×{metadata.get('grid_size', 'N/A')}
             • Edifici totali: {metadata.get('total_buildings', 'N/A')}
@@ -200,9 +199,9 @@ if __name__ == "__main__":
             • Coordinate origine: {metadata.get('origin', 'N/A')}
             • Città: {metadata.get('city', 'N/A')}
             """
-    
-        plt.figtext(0.02, 0.02, info_text, fontsize=9, 
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgray"))
+        '''
+        #plt.figtext(0.02, 0.02, info_text, fontsize=9, 
+         #       bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgray"))
 
         plt.title(f"Mappa binaria di {target_city} (0 = edificio, 1 = suolo libero)")
         plt.xlabel("Coordinate X (grid)")
